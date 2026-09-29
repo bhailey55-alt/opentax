@@ -1,136 +1,132 @@
-# Form 8283 — Noncash Charitable Contributions
+# Form 8283, TY2025
 
-## Overview
-Captures noncash charitable contribution data for deduction on Schedule A. Section A covers items valued $501–$5,000 each (no qualified appraisal required except for closely held stock >$10,000). Section B covers items >$5,000 each (qualified appraisal required, except publicly traded securities). The total FMV flows to Schedule A line 12. For capital gain property in Section B, the deduction is limited to cost/adjusted basis.
+The authoritative source for this implementation is the
+[2025 Form 8283 instructions](https://www.irs.gov/instructions/i8283) and the
+local TY2025v5.4 `IRS8283.xsd`. This file describes the current build pass, not
+verified IRS acceptance.
 
-**IRS Form:** 8283
-**Drake Screen:** 8283
-**Node Type:** input
-**Tax Year:** 2025
-**Drake Reference:** https://kb.drakesoftware.com/Site/Browse/14012
+## Similar-item aggregation build pass (unverified)
 
----
+The [2025 Form 8283 instructions](https://www.irs.gov/instructions/i8283) define
+similar items by general category or type (for example, books, clothing,
+jewelry, paintings, or nonpublic stock), not by donee. Multiple positive gifts
+now need an explicit `similar_item_group` source category on each item; the
+software does not infer it from descriptions. Claimed values before AGI limits
+aggregate case-insensitively across Section A, Section B, and all donees. A
+group above $5,000 cannot leave a non-exempt item in Section A and requires
+Section B qualified-appraisal facts. The separate per-item `IRS8283` documents
+emitted by the current MeF builder also meet the distinct donee-document
+requirement. Individual Section B items at or below $5,000 are allowed only when
+their group exceeds $5,000. A supported Section B group above $500,000 now needs
+one shared full appraisal PDF, an explicit statement that it covers all items,
+and a binary link on every group document. The multi-donee and boundary cases
+are written but unrun.
 
-## Input Fields
+The declaration itself cannot authenticate that gifts really are similar, that
+the PDF covers every item, or that appraiser/donee signatures are valid. Mixed
+Section A exemption and ordinary Section B gifts above $500,000 are stopped
+pending the exception's treatment. Art, conservation, public securities,
+intellectual property, inventory, and other special routes remain outside this
+bounded group implementation. A registered Form 8283 PDF descriptor now covers
+up to four reconciled current-year Section A election gifts and one standalone
+current-year Section B unimproved investment-land election. The Section B PDF
+does not reproduce the separately supplied appraiser/donee signatures. Other
+routes and filled-PDF visual validation remain open.
 
-**Section A items (≤$5,000 each):**
+## Calculation and document model
 
-| Field | Type | Required | Source / Label | Description | IRS Reference | URL |
-| ----- | ---- | -------- | -------------- | ----------- | ------------- | --- |
-| section_a_items | SectionAItem[] | No | Section A contributions | Items valued $501–$5,000 each | Form 8283 Section A | https://www.irs.gov/pub/irs-pdf/i8283.pdf |
-| property_description | string | No | Property description | Description of donated property | Form 8283 Section A col (a) | https://www.irs.gov/pub/irs-pdf/i8283.pdf |
-| date_acquired | string (ISO) | No | Date acquired | When donor acquired the property | Form 8283 Section A col (b) | https://www.irs.gov/pub/irs-pdf/i8283.pdf |
-| date_contributed | string (ISO) | No | Date contributed | Date of donation | Form 8283 Section A col (c) | https://www.irs.gov/pub/irs-pdf/i8283.pdf |
-| fmv | number (≥0) | No | Fair market value | FMV at date of contribution | Form 8283 Section A col (e) | https://www.irs.gov/pub/irs-pdf/i8283.pdf |
-| fmv_method | FMVMethod enum | No | How FMV determined | Method: appraisal, thrift_shop_value, catalog_value, comparable_sales, formula, other | Form 8283 Section A col (f) | https://www.irs.gov/pub/irs-pdf/i8283.pdf |
-| cost_or_adjusted_basis | number (≥0) | No | Cost basis | Donor's cost or adjusted basis | Form 8283 Section A col (g) | https://www.irs.gov/pub/irs-pdf/i8283.pdf |
-| is_vehicle | boolean | No | Is vehicle | True if donated property is a motor vehicle (car, boat, airplane) | Form 8283 instructions | https://www.irs.gov/pub/irs-pdf/i8283.pdf |
-| vehicle_1098c_received | boolean | No | 1098-C received | True if Form 1098-C received from donee organization for vehicle | Form 8283 / Form 1098-C | https://www.irs.gov/pub/irs-pdf/i8283.pdf |
-| is_clothing_household | boolean | No | Clothing/household | True if item is clothing or household goods (must be good used condition+) | Form 8283 instructions | https://www.irs.gov/pub/irs-pdf/i8283.pdf |
+- Section A now sends the source claimed amount, or FMV when no reduction is
+  stated, with an explicit AGI-limit category to Schedule A. A vehicle claimed
+  above $500 requires the donee's certified facts, a contribution date, a VIN,
+  and a claimed amount within the supported sale-proceeds, needy-person
+  transfer, significant-intervening-use, or material-improvement route. The
+  three gross-proceeds exceptions use Section A only when the claimed deduction
+  is at most $5,000; larger claims need Section B and a qualified appraisal.
+  Ordinary-income-property reductions and AGI ceilings still need source-level
+  calculation.
+- The 2025 Form 8283 Section A instructions for column (h) require the reduced
+  contribution amount, not the unreduced FMV, when the deduction is reduced
+  below FMV. The native `IRS8283` now uses the source `deduction_claimed` for
+  that column when supplied, including a sale-proceeds-capped vehicle, while
+  retaining `fmv` separately for validation. The MeF `FairMarketValueAmt`
+  references a separate native `FairMarketValueStatement` in the TY2025
+  ReturnData sequence. It gives unreduced FMV, reduction arithmetic, and the
+  reason. Certified unrelated-party sale proceeds supply the reason only when
+  the claimed deduction exactly equals the lesser of FMV and those proceeds and
+  sourced basis is at least FMV, so no appreciation reduction is also due; the
+  other supported route is purchased ordinary-income property held no more than
+  one year, with acquisition/contribution dates, basis below FMV, and a claimed
+  deduction exactly equal to basis. The statement derives the short-term
+  appreciation reduction under section 170(e)(1)(A). Voluntary underclaims,
+  unverifiable tax classifications, combined vehicle-sale/ordinary-income
+  reductions, and other reduction rules are rejected rather than accepted
+  through free-text reasons. See the
+  [2025 instructions, Section A column (h)](https://www.irs.gov/pub/irs-pdf/i8283.pdf).
+- Section B requires separate `fmv` and `deduction_claimed` values. The
+  calculation sends the claimed value to Schedule A line 12. Capital-gain
+  property is **not** automatically capped at basis. FMV is usually available,
+  but specific reductions and percentage limits can apply.
+- Ordinary Section B gifts with more than $5,000 claimed now emit one `IRS8283`
+  document per property with its property type, acquisition facts,
+  qualified-appraiser declaration, and signed donee acknowledgment facts. The
+  appraisal itself is generally retained, not attached. For a single-item
+  deduction above $500,000, supported equipment, nonpublic securities,
+  collectibles, and exception vehicles now require the full qualified appraisal
+  as a separate PDF described with the IRS's `Qualified Appraisal` prefix. It
+  links to that item's `IRS8283` alongside the signature PDFs. This is not a
+  substitute for validating the appraisal's contents or grouping similar items
+  across donees. High-value art, conservation/easement and other special
+  property types remain stopped pending their extra evidence. A Section B
+  vehicle using one of the three gross-proceeds exceptions now requires a
+  qualified appraisal, appraiser and donee signature PDF references, a
+  donee-issued Form 1098-C or equivalent acknowledgment PDF, and its native
+  `ContriVehicleBoatAirplaneStmt`. The statement links to `PropertyInformation`;
+  all three binaries link to that item's `IRS8283` document. Section A vehicles
+  claimed at $500 or less can include their VIN without a sale acknowledgment.
+  For higher Section A vehicle claims on all four supported certification
+  routes, a separate native MeF `ContriVehicleBoatAirplaneStmt` is generated
+  from the donee facts and linked to the Form 8283 row. The actual donee-issued
+  Form 1098-C or equivalent contemporaneous written acknowledgment must also be
+  supplied as a PDF `BinaryAttachment` linked to `IRS8283`. The IRS 2025
+  instructions explicitly require the copy for vehicle deductions above $500;
+  the structured statement is supplemental, not a replacement. The local
+  TY2025v5.4 `IRS8283.xsd` permits the binary reference on the form document.
+  The local statement schema has `CertifiesVehicleNotTrnsfrInd` for Form 1098-C
+  box 5a and `CertifiesDetailedImprvDesc` for box 5c. The use route requires the
+  donee's intended activity and duration, and the improvement route requires its
+  intended major value-adding work without an additional donor payment. Both
+  require the donee's no-transfer-before-completion certification and an
+  acknowledgment furnished within 30 days of contribution. These are prospective
+  donee certifications, not proof that the eventual work happened.
+- The serializer uses an array result for every call so one input can produce an
+  optional Section A document and multiple Section B documents without a dual
+  return shape.
 
-**Section B items (>$5,000 each — qualified appraisal required):**
+## Open correctness gates
 
-| Field | Type | Required | Source / Label | Description | IRS Reference | URL |
-| ----- | ---- | -------- | -------------- | ----------- | ------------- | --- |
-| section_b_items | SectionBItem[] | No | Section B contributions | Items valued >$5,000 requiring qualified appraisal | Form 8283 Section B | https://www.irs.gov/pub/irs-pdf/i8283.pdf |
-| property_description | string | No | Property description | Description of donated property | Form 8283 Section B col (a) | https://www.irs.gov/pub/irs-pdf/i8283.pdf |
-| date_acquired | string (ISO) | No | Date acquired | When donor acquired the property | Form 8283 Section B col (b) | https://www.irs.gov/pub/irs-pdf/i8283.pdf |
-| date_contributed | string (ISO) | No | Date contributed | Date of donation | Form 8283 Section B col (c) | https://www.irs.gov/pub/irs-pdf/i8283.pdf |
-| fmv | number (≥0) | No | Fair market value | FMV per qualified appraisal | Form 8283 Section B col (e) | https://www.irs.gov/pub/irs-pdf/i8283.pdf |
-| cost_or_adjusted_basis | number (≥0) | No | Cost basis | Donor's adjusted basis | Form 8283 Section B col (g) | https://www.irs.gov/pub/irs-pdf/i8283.pdf |
-| appraiser_name | string | No | Appraiser name | Qualified appraiser's name | Form 8283 Section B Part III | https://www.irs.gov/pub/irs-pdf/i8283.pdf |
-| appraisal_date | string (ISO) | No | Appraisal date | Date of appraisal (must be within 60 days before/on donation date) | Form 8283 Section B | https://www.irs.gov/pub/irs-pdf/i8283.pdf |
-| is_capital_gain_property | boolean | No | Capital gain property | True if property would have generated long-term capital gain if sold | Form 8283 Section B; IRC §170(e) | https://www.irs.gov/pub/irs-pdf/i8283.pdf |
+1. Confirm each contribution's allowed deduction, including ordinary-income
+   property reductions and 2025 Schedule A AGI limits, before totaling line 12.
+2. Cover remaining special vehicle rules and complete Section B evidence review.
+   The donee-issued acknowledgment attachment path for supported Section A and
+   exception Section B routes is implemented, but local code cannot authenticate
+   PDF provenance or certify that a user-supplied copy matches the donee's
+   original.
+3. Build required appraisal, photograph, and special statements for high-value
+   art, aggregated similar-item gifts over $500,000, certain clothing/household
+   items, conservation easements, and pass-through contributions. The supported
+   high-value Securities path relies on the entered Section B property type; the
+   source model does not independently verify that the security was nonpublicly
+   traded.
+4. Add PDF field mapping and verify document signatures/receipt facts.
+5. Run the requested full test batch, including the new Section B and vehicle
+   statement local XSD cases, then resolve failures and rerun the complete
+   batch.
 
----
-
-## Calculation Logic
-
-### Step 1 — Section A total
-`sectionA = Σ item.fmv for all section_a_items`
-Source: Form 8283 Section A total line — https://www.irs.gov/pub/irs-pdf/i8283.pdf
-
-### Step 2 — Section B FMV per item (capital gain property adjustment)
-For each Section B item:
-- If `is_capital_gain_property = true`: `effectiveFMV = min(fmv, cost_or_adjusted_basis)` per IRC §170(e)(1)
-- Otherwise: `effectiveFMV = fmv`
-Source: IRC §170(e)(1)(A); Form 8283 Section B instructions — https://www.irs.gov/pub/irs-pdf/i8283.pdf
-
-### Step 3 — Section B total
-`sectionB = Σ effectiveFMV for all section_b_items`
-
-### Step 4 — Route to Schedule A
-`total = sectionA + sectionB`
-If total > 0: emit to `schedule_a.line_12_noncash_contributions`
-Source: Schedule A Line 12 — https://www.irs.gov/pub/irs-pdf/f1040sa.pdf
-
----
-
-## Output Routing
-
-| Output Field | Destination Node | Condition | IRS Reference | URL |
-| ------------ | ---------------- | --------- | ------------- | --- |
-| line_12_noncash_contributions | schedule_a | total > 0 | Schedule A Line 12 | https://www.irs.gov/pub/irs-pdf/f1040sa.pdf |
-
----
-
-## Constants & Thresholds (Tax Year 2025)
-
-| Constant | Value | Source | URL |
-| -------- | ----- | ------ | --- |
-| Section A lower threshold (reporting required) | >$500 total | IRC §170(f)(11)(A); statutory | https://www.law.cornell.edu/uscode/text/26/170 |
-| Section B appraisal threshold (per item) | >$5,000 | IRC §170(f)(11)(C); statutory | https://www.law.cornell.edu/uscode/text/26/170 |
-| Closely held stock Section B threshold | >$10,000 | IRC §170(f)(11)(C); statutory | https://www.law.cornell.edu/uscode/text/26/170 |
-| Vehicle deduction limit without 1098-C | $500 | IRC §170(f)(12)(A); statutory | https://www.law.cornell.edu/uscode/text/26/170 |
-| AGI limit — 50% charities (cash equivalent) | 60% of AGI | IRC §170(b)(1)(G); TCJA §11023 | https://www.law.cornell.edu/uscode/text/26/170 |
-| AGI limit — 50% charities (capital gain prop) | 30% of AGI | IRC §170(b)(1)(C); statutory | https://www.law.cornell.edu/uscode/text/26/170 |
-| AGI limit — 30% charities | 30% of AGI | IRC §170(b)(1)(B); statutory | https://www.law.cornell.edu/uscode/text/26/170 |
-
----
-
-## Data Flow Diagram
-
-flowchart LR
-  subgraph inputs["Data Entry"]
-    secA["section_a_items[]\n(FMV ≤$5k each)"]
-    secB["section_b_items[]\n(FMV >$5k, appraisal req'd)"]
-  end
-  subgraph node["f8283 (Noncash Contributions)"]
-    totA["totalSectionA()"]
-    adjB["sectionBFMV() — cap at basis\nfor capital gain prop"]
-    totB["totalSectionB()"]
-    tot["total = A + B"]
-  end
-  subgraph outputs["Downstream Nodes"]
-    schA["schedule_a\nline_12_noncash_contributions"]
-  end
-  secA --> totA --> tot
-  secB --> adjB --> totB --> tot
-  tot --> schA
-
----
-
-## Edge Cases & Special Rules
-
-1. **$500 threshold**: Noncash contributions ≤$500 total do not require Form 8283 (no reporting). Items $501–$5,000 go to Section A; >$5,000 go to Section B.
-2. **Clothing/household goods condition**: Must be in good used condition or better. If FMV ≤$500 and condition is poor, the deduction may be disallowed (IRC §170(f)(16)).
-3. **Vehicle deduction (is_vehicle = true)**: If the donating charity sells the vehicle without significant use, the deduction is limited to gross proceeds from the sale (reported on Form 1098-C). If no 1098-C, deduction capped at $500.
-4. **Capital gain property — 30% AGI limit**: If `is_capital_gain_property = true` and donated to a 50% charity, the deduction is limited to 30% of AGI. The node does not compute AGI limits; Schedule A handles this.
-5. **Section B appraisal timing**: The qualified appraisal must be made no earlier than 60 days before the donation and no later than the tax return due date (including extensions).
-6. **Publicly traded securities — Section B exception**: Publicly traded securities >$5,000 do not require a qualified appraisal (Section B still required but appraiser fields optional).
-7. **Art contribution >$20,000**: IRS may request a copy of the qualified appraisal. Out of scope for this node.
-8. **Conservation easements**: Subject to special substantiation and reporting rules. Treated as capital gain property; 50% AGI limit applies (IRC §170(b)(1)(E)).
-9. **Carryover**: Contributions that exceed AGI limits may be carried forward 5 years. Form 8283 does not track carryovers; Schedule A handles the deduction ceiling.
-10. **Multiple forms**: The node accepts unlimited items in both section_a_items and section_b_items. IRS allows multiple Form 8283 pages.
-
----
-
-## Sources
-
-| Document | Year | Section | URL | Saved as |
-| -------- | ---- | ------- | --- | -------- |
-| Form 8283 Instructions | 2024 | All | https://www.irs.gov/pub/irs-pdf/i8283.pdf | .research/docs/i8283.pdf |
-| IRC §170 — Charitable Contributions | current | §170(b),(e),(f)(11–12) | https://www.law.cornell.edu/uscode/text/26/170 | N/A |
-| IRS Pub 526 — Charitable Contributions | 2024 | All | https://www.irs.gov/pub/irs-pdf/p526.pdf | .research/docs/p526.pdf |
-| IRS Pub 561 — Determining Value of Donated Property | 2024 | All | https://www.irs.gov/pub/irs-pdf/p561.pdf | .research/docs/p561.pdf |
-| Rev Proc 2024-40 (TY2025 adjustments) | 2024 | §3 | https://www.irs.gov/pub/irs-drop/rp-24-40.pdf | .research/docs/rp-24-40.pdf |
+The [IRS instructions](https://www.irs.gov/instructions/i8283) explain the
+general FMV rule and exceptions for capital-gain property, Section B separate
+form requirements, and when a signed appraisal or other attachment must be
+submitted with the return. The
+[IRS TY2025 MeF PDF guide](https://www.irs.gov/pub/irs-schema/ty2025-recommended-names-and-descriptions-for-pdf-files-by-form.pdf)
+recommends `QualifiedAppraisal.pdf` with a description beginning
+`Qualified
+Appraisal` for deductions above $500,000.

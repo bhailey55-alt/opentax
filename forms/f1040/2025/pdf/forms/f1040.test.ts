@@ -1,4 +1,4 @@
-import { assertEquals, assertMatch } from "@std/assert";
+import { assertEquals, assertMatch, assertThrows } from "@std/assert";
 import { irs1040Pdf } from "./f1040.ts";
 
 // ---------------------------------------------------------------------------
@@ -14,6 +14,10 @@ Deno.test("irs1040Pdf: pdfUrl points to IRS f1040", () => {
     irs1040Pdf.pdfUrl,
     "https://www.irs.gov/pub/irs-prior/f1040--2025.pdf",
   );
+});
+
+Deno.test("irs1040Pdf: Form 1040 projects source-reconciled fields", () => {
+  assertEquals(typeof irs1040Pdf.projectFields, "function");
 });
 
 // ---------------------------------------------------------------------------
@@ -52,6 +56,36 @@ Deno.test("irs1040Pdf.fields: contains expected income line fields", () => {
   for (const key of expected) {
     assertEquals(domainKeys.has(key), true, `Missing domain key: ${key}`);
   }
+});
+
+Deno.test("irs1040Pdf: line 5c rollover checks the 2025 pension checkbox with code-G source", () => {
+  const entry = irs1040Pdf.fields.find((field) =>
+    field.domainKey === "line5c_pension_rollover"
+  );
+  assertEquals(entry?.kind, "checkbox");
+  assertEquals(
+    entry?.pdfField,
+    "topmostSubform[0].Page1[0].c1_38[0]",
+  );
+  const source = { f1099r: { f1099rs: [{
+    payer_name: "Jubilee",
+    payer_ein: "12-3456789",
+    box1_gross_distribution: 20_300,
+    box2a_taxable_amount: 10_300,
+    box7_distribution_code: "G",
+    box7_ira_simple_indicator: false,
+    direct_rollover_confirmed: true,
+  }] } };
+  const fields = { line5c_pension_rollover: true };
+  assertEquals(
+    irs1040Pdf.projectFields?.(fields, source)?.line5c_pension_rollover,
+    true,
+  );
+  assertThrows(
+    () => irs1040Pdf.projectFields?.(fields, {}),
+    Error,
+    "needs valid Form 1099-R source facts",
+  );
 });
 
 Deno.test("irs1040Pdf.fields: contains expected payment fields", () => {

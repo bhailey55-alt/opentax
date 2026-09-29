@@ -1,4 +1,10 @@
 import type { PdfFieldEntry, PdfFormDescriptor } from "../form-descriptor.ts";
+import {
+  assertForm8959Absent,
+  assertForm8959Sources,
+  hasForm8959Print,
+} from "../../form8959-source.ts";
+import { printFieldsSchema } from "../../../nodes/intermediate/forms/form8959/index.ts";
 
 // IRS Form 8959 (2025) AcroForm field names.
 // Additional Medicare Tax.
@@ -44,9 +50,38 @@ export const form8959Pdf: PdfFormDescriptor = {
   pendingKey: "form8959",
   pdfUrl: "https://www.irs.gov/pub/irs-prior/f8959--2025.pdf",
   fields,
-  // Form 8959 is required when Medicare wages exceed the $200k withholding
-  // threshold or additional Medicare tax was computed (Schedule 2 line 11).
+  filerFields: [
+    {
+      kind: "text",
+      domainKey: "fullName",
+      pdfField: "topmostSubform[0].Page1[0].f1_1[0]",
+    },
+    {
+      kind: "text",
+      domainKey: "primarySSN",
+      pdfField: "topmostSubform[0].Page1[0].f1_2[0]",
+    },
+  ],
+  projectFields: (raw, all) => {
+    if (!hasForm8959Print(raw)) {
+      assertForm8959Absent(raw, all);
+      return raw;
+    }
+    const printValues = Object.fromEntries(
+      Object.keys(printFieldsSchema.shape)
+        .filter((key) => key in raw)
+        .map((key) => [key, raw[key]]),
+    );
+    const printed = printFieldsSchema.parse(printValues);
+    assertForm8959Sources(raw, printed, all);
+    return printed;
+  },
+  // A single W-2 above the employer withholding trigger requires filing even
+  // when the return-wide threshold leaves tax at zero.
   includeWhen: (fields, all) =>
-    (((all?.["schedule2"]?.["line11_additional_medicare"]) as number | undefined) ?? 0) > 0 ||
-    ((fields["medicare_wages_box5"] as number | undefined) ?? 0) > 200000,
+    (((all?.["schedule2"]?.["line11_additional_medicare"]) as
+        | number
+        | undefined) ?? 0) > 0 ||
+    ((fields["line24_total_withheld"] as number | undefined) ?? 0) > 0 ||
+    fields["single_w2_over_withholding_threshold"] === true,
 };

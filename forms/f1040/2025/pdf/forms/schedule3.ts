@@ -1,4 +1,5 @@
 import type { PdfFieldEntry, PdfFormDescriptor } from "../form-descriptor.ts";
+import { scheduleR } from "../../mef/forms/schedule_r.ts";
 
 // IRS Schedule 3 (2025) AcroForm field names.
 // Verified against the f1040s3--2025.pdf AcroForm field dump (37 fields, one
@@ -30,33 +31,166 @@ import type { PdfFieldEntry, PdfFormDescriptor } from "../form-descriptor.ts";
 
 const fields: ReadonlyArray<PdfFieldEntry> = [
   // ── Part I: Nonrefundable Credits ────────────────────────────────────────────
-  { kind: "text", domainKey: "line1_total", pdfField: "topmostSubform[0].Page1[0].f1_03[0]" },
-  { kind: "text", domainKey: "line2_childcare_credit", pdfField: "topmostSubform[0].Page1[0].f1_04[0]" },
-  { kind: "text", domainKey: "line3_education_credit", pdfField: "topmostSubform[0].Page1[0].f1_05[0]" },
-  { kind: "text", domainKey: "line4_retirement_savings_credit", pdfField: "topmostSubform[0].Page1[0].f1_06[0]" },
-  { kind: "text", domainKey: "line5_residential_energy", pdfField: "topmostSubform[0].Page1[0].f1_07[0]" },
-  { kind: "text", domainKey: "line6z_general_business_credit", pdfField: "topmostSubform[0].Page1[0].Line6a_ReadOrder[0].f1_09[0]" },
-  { kind: "text", domainKey: "line6e_prior_year_min_tax_credit", pdfField: "topmostSubform[0].Page1[0].f1_10[0]" },
-  { kind: "text", domainKey: "line6c_adoption_credit", pdfField: "topmostSubform[0].Page1[0].f1_11[0]" },
-  { kind: "text", domainKey: "line6d_elderly_disabled_credit", pdfField: "topmostSubform[0].Page1[0].f1_12[0]" },
-  { kind: "text", domainKey: "line6d_clean_vehicle_credit", pdfField: "topmostSubform[0].Page1[0].f1_14[0]" },
-  { kind: "text", domainKey: "line6f_mortgage_interest_credit", pdfField: "topmostSubform[0].Page1[0].f1_15[0]" },
-  { kind: "text", domainKey: "line8_total", pdfField: "topmostSubform[0].Page1[0].f1_25[0]" },
+  {
+    kind: "text",
+    domainKey: "line1_total",
+    pdfField: "topmostSubform[0].Page1[0].f1_03[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line2_childcare_credit",
+    pdfField: "topmostSubform[0].Page1[0].f1_04[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line3_education_credit",
+    pdfField: "topmostSubform[0].Page1[0].f1_05[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line4_retirement_savings_credit",
+    pdfField: "topmostSubform[0].Page1[0].f1_06[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line5a_residential_clean_energy",
+    pdfField: "topmostSubform[0].Page1[0].f1_07[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line5b_energy_efficient_home",
+    pdfField: "topmostSubform[0].Page1[0].f1_08[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line6a_total",
+    pdfField: "topmostSubform[0].Page1[0].Line6a_ReadOrder[0].f1_09[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line6b_prior_year_min_tax_credit",
+    pdfField: "topmostSubform[0].Page1[0].f1_10[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line6c_adoption_credit",
+    pdfField: "topmostSubform[0].Page1[0].f1_11[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line6d_elderly_disabled_credit",
+    pdfField: "topmostSubform[0].Page1[0].f1_12[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line6f_total",
+    pdfField: "topmostSubform[0].Page1[0].f1_14[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line6g_mortgage_interest_credit",
+    pdfField: "topmostSubform[0].Page1[0].f1_15[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line6h_dc_homebuyer_credit",
+    pdfField: "topmostSubform[0].Page1[0].f1_16[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line6i_qualified_electric_vehicle_credit",
+    pdfField: "topmostSubform[0].Page1[0].f1_17[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line6k_tax_credit_bonds",
+    pdfField: "topmostSubform[0].Page1[0].f1_19[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line6l_form8978_credit",
+    pdfField: "topmostSubform[0].Page1[0].f1_20[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line6m_total",
+    pdfField: "topmostSubform[0].Page1[0].f1_21[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line7_total",
+    pdfField: "topmostSubform[0].Page1[0].f1_24[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line8_total",
+    pdfField: "topmostSubform[0].Page1[0].f1_25[0]",
+  },
 
   // ── Part II: Other Payments and Refundable Credits ───────────────────────────
-  { kind: "text", domainKey: "line9_premium_tax_credit", pdfField: "topmostSubform[0].Page1[0].f1_26[0]" },
-  { kind: "text", domainKey: "line10_amount_paid_extension", pdfField: "topmostSubform[0].Page1[0].f1_27[0]" },
-  { kind: "text", domainKey: "line11_excess_ss", pdfField: "topmostSubform[0].Page1[0].f1_28[0]" },
-  { kind: "text", domainKey: "line13_1446_withholding", pdfField: "topmostSubform[0].Page1[0].f1_33[0]" },
-  { kind: "text", domainKey: "line15_total", pdfField: "topmostSubform[0].Page1[0].f1_37[0]" },
+  {
+    kind: "text",
+    domainKey: "line9_premium_tax_credit",
+    pdfField: "topmostSubform[0].Page1[0].f1_26[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line10_amount_paid_extension",
+    pdfField: "topmostSubform[0].Page1[0].f1_27[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line11_excess_ss",
+    pdfField: "topmostSubform[0].Page1[0].f1_28[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line12_fuel_tax_credit",
+    pdfField: "topmostSubform[0].Page1[0].f1_29[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line13a_total",
+    pdfField: "topmostSubform[0].Page1[0].Line13_ReadOrder[0].f1_30[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line15_total",
+    pdfField: "topmostSubform[0].Page1[0].f1_37[0]",
+  },
 ];
 
 export const schedule3Pdf: PdfFormDescriptor = {
   pendingKey: "schedule3",
   pdfUrl: "https://www.irs.gov/pub/irs-prior/f1040s3--2025.pdf",
   fields,
+  projectFields(fields, allPending) {
+    if (
+      typeof fields.line6d_elderly_disabled_credit === "number" &&
+      fields.line6d_elderly_disabled_credit > 0
+    ) {
+      if (
+        !scheduleR.build(allPending.schedule_r ?? {}, { pending: allPending })
+      ) {
+        throw new Error("Schedule 3 PDF line 6d needs a filed Schedule R");
+      }
+    }
+    const worksheet = allPending.form8978_reporting_year;
+    const line6l = worksheet?.schedule3_line6l;
+    return typeof line6l === "number" && line6l > 0
+      ? { ...fields, line6l_form8978_credit: line6l }
+      : fields;
+  },
   filerFields: [
-    { kind: "text", domainKey: "fullName", pdfField: "topmostSubform[0].Page1[0].f1_01[0]" },
-    { kind: "text", domainKey: "primarySSN", pdfField: "topmostSubform[0].Page1[0].f1_02[0]" },
+    {
+      kind: "text",
+      domainKey: "fullName",
+      pdfField: "topmostSubform[0].Page1[0].f1_01[0]",
+    },
+    {
+      kind: "text",
+      domainKey: "primarySSN",
+      pdfField: "topmostSubform[0].Page1[0].f1_02[0]",
+    },
   ],
 };

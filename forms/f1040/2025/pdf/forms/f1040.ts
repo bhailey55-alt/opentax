@@ -1,4 +1,12 @@
 import type { PdfFieldEntry, PdfFormDescriptor } from "../form-descriptor.ts";
+import { rgb, StandardFonts } from "pdf-lib";
+import { form8814ParentPrintAmounts } from "./f8814.ts";
+import { schedule1aPdf } from "./schedule1a.ts";
+import { inputSchema as w2gInputSchema } from "../../../nodes/inputs/w2g/index.ts";
+import {
+  inputSchema as f1099rInputSchema,
+  isPensionDirectRollover,
+} from "../../../nodes/inputs/f1099r/index.ts";
 
 // IRS Form 1040 (2025) AcroForm field names.
 // Verified empirically by filling each field with a unique value and inspecting the output.
@@ -34,98 +42,400 @@ const fields: ReadonlyArray<PdfFieldEntry> = [
   // header row (c1_1 = "Filed pursuant to section 301.9100-2", c1_2 = combat
   // zone, c1_3 = deceased, c1_4 = "Other", c1_5 = main-home-in-US), which
   // wrongly stamped a §301.9100-2 late-election mark on single-filer returns.
-  { kind: "checkboxWhen", domainKey: "filing_status", pdfField: "topmostSubform[0].Page1[0].Checkbox_ReadOrder[0].c1_8[0]", whenValue: "single" },
-  { kind: "checkboxWhen", domainKey: "filing_status", pdfField: "topmostSubform[0].Page1[0].Checkbox_ReadOrder[0].c1_8[1]", whenValue: "mfj" },
-  { kind: "checkboxWhen", domainKey: "filing_status", pdfField: "topmostSubform[0].Page1[0].Checkbox_ReadOrder[0].c1_8[2]", whenValue: "mfs" },
-  { kind: "checkboxWhen", domainKey: "filing_status", pdfField: "topmostSubform[0].Page1[0].c1_8[0]", whenValue: "hoh" },
-  { kind: "checkboxWhen", domainKey: "filing_status", pdfField: "topmostSubform[0].Page1[0].c1_8[1]", whenValue: "qss" },
+  {
+    kind: "checkboxWhen",
+    domainKey: "filing_status",
+    pdfField: "topmostSubform[0].Page1[0].Checkbox_ReadOrder[0].c1_8[0]",
+    whenValue: "single",
+  },
+  {
+    kind: "checkboxWhen",
+    domainKey: "filing_status",
+    pdfField: "topmostSubform[0].Page1[0].Checkbox_ReadOrder[0].c1_8[1]",
+    whenValue: "mfj",
+  },
+  {
+    kind: "checkboxWhen",
+    domainKey: "filing_status",
+    pdfField: "topmostSubform[0].Page1[0].Checkbox_ReadOrder[0].c1_8[2]",
+    whenValue: "mfs",
+  },
+  {
+    kind: "checkboxWhen",
+    domainKey: "filing_status",
+    pdfField: "topmostSubform[0].Page1[0].c1_8[0]",
+    whenValue: "hoh",
+  },
+  {
+    kind: "checkboxWhen",
+    domainKey: "filing_status",
+    pdfField: "topmostSubform[0].Page1[0].c1_8[1]",
+    whenValue: "qss",
+  },
 
   // ── Page 1: Digital assets question (Yes = c1_10[0], No = c1_10[1]) ───────
   // Required answer on every 2025 return; previously unmapped (left blank).
-  { kind: "checkboxWhen", domainKey: "digital_assets", pdfField: "topmostSubform[0].Page1[0].c1_10[0]", whenValue: "true" },
-  { kind: "checkboxWhen", domainKey: "digital_assets", pdfField: "topmostSubform[0].Page1[0].c1_10[1]", whenValue: "false" },
+  {
+    kind: "checkboxWhen",
+    domainKey: "digital_assets",
+    pdfField: "topmostSubform[0].Page1[0].c1_10[0]",
+    whenValue: "true",
+  },
+  {
+    kind: "checkboxWhen",
+    domainKey: "digital_assets",
+    pdfField: "topmostSubform[0].Page1[0].c1_10[1]",
+    whenValue: "false",
+  },
 
   // ── Page 1: Wages (Lines 1a–1z) ───────────────────────────────────────────
-  { kind: "text", domainKey: "line1a_wages",                    pdfField: "topmostSubform[0].Page1[0].f1_47[0]" },
-  { kind: "text", domainKey: "line1b_household_wages",          pdfField: "topmostSubform[0].Page1[0].f1_48[0]" },
-  { kind: "text", domainKey: "line1c_unreported_tips",          pdfField: "topmostSubform[0].Page1[0].f1_49[0]" },
-  { kind: "text", domainKey: "line1d_medicaid_waiver",          pdfField: "topmostSubform[0].Page1[0].f1_50[0]" },
-  { kind: "text", domainKey: "line1e_taxable_dep_care",         pdfField: "topmostSubform[0].Page1[0].f1_51[0]" },
-  { kind: "text", domainKey: "line1f_taxable_adoption_benefits",pdfField: "topmostSubform[0].Page1[0].f1_52[0]" },
-  { kind: "text", domainKey: "line1g_wages_8919",               pdfField: "topmostSubform[0].Page1[0].f1_53[0]" },
+  {
+    kind: "text",
+    domainKey: "line1a_wages",
+    pdfField: "topmostSubform[0].Page1[0].f1_47[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line1b_household_wages",
+    pdfField: "topmostSubform[0].Page1[0].f1_48[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line1c_unreported_tips",
+    pdfField: "topmostSubform[0].Page1[0].f1_49[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line1d_medicaid_waiver",
+    pdfField: "topmostSubform[0].Page1[0].f1_50[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line1e_taxable_dep_care",
+    pdfField: "topmostSubform[0].Page1[0].f1_51[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line1f_taxable_adoption_benefits",
+    pdfField: "topmostSubform[0].Page1[0].f1_52[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line1g_wages_8919",
+    pdfField: "topmostSubform[0].Page1[0].f1_53[0]",
+  },
   // f1_54 = line 1h description text — not a dollar field, skipped
-  { kind: "text", domainKey: "line1h_other_earned",             pdfField: "topmostSubform[0].Page1[0].f1_55[0]" },
-  { kind: "text", domainKey: "line1i_combat_pay",               pdfField: "topmostSubform[0].Page1[0].f1_56[0]" },
-  { kind: "text", domainKey: "line1z_total_wages",              pdfField: "topmostSubform[0].Page1[0].f1_57[0]" },
+  {
+    kind: "text",
+    domainKey: "line1h_other_earned",
+    pdfField: "topmostSubform[0].Page1[0].f1_55[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line1i_combat_pay",
+    pdfField: "topmostSubform[0].Page1[0].f1_56[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line1z_total_wages",
+    pdfField: "topmostSubform[0].Page1[0].f1_57[0]",
+  },
 
   // ── Page 1: Income (Lines 2–11) ───────────────────────────────────────────
   // f1_64 = QCD sub-field (line 4 sub-item), f1_67 = PSO sub-field (line 5 sub-item),
   // f1_71 = near line 7b checkbox area — all three skipped.
-  { kind: "text", domainKey: "line2a_tax_exempt",               pdfField: "topmostSubform[0].Page1[0].f1_58[0]" },
-  { kind: "text", domainKey: "line2b_taxable_interest",         pdfField: "topmostSubform[0].Page1[0].f1_59[0]" },
-  { kind: "text", domainKey: "line3a_qualified_dividends",      pdfField: "topmostSubform[0].Page1[0].f1_60[0]" },
-  { kind: "text", domainKey: "line3b_ordinary_dividends",       pdfField: "topmostSubform[0].Page1[0].f1_61[0]" },
-  { kind: "text", domainKey: "line4a_ira_gross",                pdfField: "topmostSubform[0].Page1[0].f1_62[0]" },
-  { kind: "text", domainKey: "line4b_ira_taxable",              pdfField: "topmostSubform[0].Page1[0].f1_63[0]" },
+  {
+    kind: "text",
+    domainKey: "line2a_tax_exempt",
+    pdfField: "topmostSubform[0].Page1[0].f1_58[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line2b_taxable_interest",
+    pdfField: "topmostSubform[0].Page1[0].f1_59[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line3a_qualified_dividends",
+    pdfField: "topmostSubform[0].Page1[0].f1_60[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line3b_ordinary_dividends",
+    pdfField: "topmostSubform[0].Page1[0].f1_61[0]",
+  },
+  // 2025 line 3c has separate child-dividend boxes for lines 3a and 3b.
+  {
+    kind: "checkbox",
+    domainKey: "print_form8814_line3a_included",
+    pdfField: "topmostSubform[0].Page1[0].c1_33[0]",
+  },
+  {
+    kind: "checkbox",
+    domainKey: "print_form8814_line3b_included",
+    pdfField: "topmostSubform[0].Page1[0].c1_34[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line4a_ira_gross",
+    pdfField: "topmostSubform[0].Page1[0].f1_62[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line4b_ira_taxable",
+    pdfField: "topmostSubform[0].Page1[0].f1_63[0]",
+  },
   // f1_64 skipped (QCD sub-field)
-  { kind: "text", domainKey: "line5a_pension_gross",            pdfField: "topmostSubform[0].Page1[0].f1_65[0]" },
-  { kind: "text", domainKey: "line5b_pension_taxable",          pdfField: "topmostSubform[0].Page1[0].f1_66[0]" },
+  {
+    kind: "text",
+    domainKey: "line5a_pension_gross",
+    pdfField: "topmostSubform[0].Page1[0].f1_65[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line5b_pension_taxable",
+    pdfField: "topmostSubform[0].Page1[0].f1_66[0]",
+  },
+  {
+    kind: "checkbox",
+    domainKey: "line5c_pension_rollover",
+    pdfField: "topmostSubform[0].Page1[0].c1_38[0]",
+  },
   // f1_67 skipped (PSO sub-field)
-  { kind: "text", domainKey: "line6a_ss_gross",                 pdfField: "topmostSubform[0].Page1[0].f1_68[0]" },
-  { kind: "text", domainKey: "line6b_ss_taxable",               pdfField: "topmostSubform[0].Page1[0].f1_69[0]" },
+  {
+    kind: "text",
+    domainKey: "line6a_ss_gross",
+    pdfField: "topmostSubform[0].Page1[0].f1_68[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line6b_ss_taxable",
+    pdfField: "topmostSubform[0].Page1[0].f1_69[0]",
+  },
   // Line 7: only one of the two keys is set per return
-  { kind: "text", domainKey: "line7_capital_gain",              pdfField: "topmostSubform[0].Page1[0].f1_70[0]" },
-  { kind: "text", domainKey: "line7a_cap_gain_distrib",         pdfField: "topmostSubform[0].Page1[0].f1_70[0]" },
+  {
+    kind: "text",
+    domainKey: "line7_capital_gain",
+    pdfField: "topmostSubform[0].Page1[0].f1_70[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line7a_cap_gain_distrib",
+    pdfField: "topmostSubform[0].Page1[0].f1_70[0]",
+  },
+  {
+    kind: "checkbox",
+    domainKey: "line7a_cap_gain_distrib",
+    pdfField: "topmostSubform[0].Page1[0].c1_43[0]",
+  },
+  {
+    kind: "checkbox",
+    domainKey: "print_form8814_line7a_included",
+    pdfField: "topmostSubform[0].Page1[0].c1_44[0]",
+  },
   // f1_71 skipped (near line 7b check area)
-  { kind: "text", domainKey: "line8_additional_income",         pdfField: "topmostSubform[0].Page1[0].f1_72[0]" },
-  { kind: "text", domainKey: "line9_total_income",              pdfField: "topmostSubform[0].Page1[0].f1_73[0]" },
-  { kind: "text", domainKey: "line10_adjustments",              pdfField: "topmostSubform[0].Page1[0].f1_74[0]" },
-  { kind: "text", domainKey: "line11_agi",                      pdfField: "topmostSubform[0].Page1[0].f1_75[0]", extraPdfFields: ["topmostSubform[0].Page2[0].f2_01[0]"] },
+  {
+    kind: "text",
+    domainKey: "line8_additional_income",
+    pdfField: "topmostSubform[0].Page1[0].f1_72[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line9_total_income",
+    pdfField: "topmostSubform[0].Page1[0].f1_73[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line10_adjustments",
+    pdfField: "topmostSubform[0].Page1[0].f1_74[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line11_agi",
+    pdfField: "topmostSubform[0].Page1[0].f1_75[0]",
+    extraPdfFields: ["topmostSubform[0].Page2[0].f2_01[0]"],
+  },
 
   // ── Page 2: Deductions (Lines 12–15) ─────────────────────────────────────
   // Lines 12–15 are page 2 only in the 2025 form.
+  {
+    kind: "checkbox",
+    domainKey: "taxpayer_can_be_claimed_as_dependent",
+    pdfField: "topmostSubform[0].Page2[0].c2_1[0]",
+  },
   // Line 12a: standard deduction written first; itemized overwrites if non-zero.
-  { kind: "text", domainKey: "line12a_standard_deduction",      pdfField: "topmostSubform[0].Page2[0].f2_02[0]" },
-  { kind: "text", domainKey: "line12e_itemized_deductions",     pdfField: "topmostSubform[0].Page2[0].f2_02[0]" },
+  {
+    kind: "text",
+    domainKey: "line12a_standard_deduction",
+    pdfField: "topmostSubform[0].Page2[0].f2_02[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line12e_itemized_deductions",
+    pdfField: "topmostSubform[0].Page2[0].f2_02[0]",
+  },
   // f2_03 = line 13a QBI deduction
-  { kind: "text", domainKey: "line13_qbi_deduction",            pdfField: "topmostSubform[0].Page2[0].f2_03[0]" },
-  { kind: "text", domainKey: "line13b_additional_deductions", pdfField: "topmostSubform[0].Page2[0].f2_04[0]" },
-  { kind: "text", domainKey: "line14_deductions_qbi_total",     pdfField: "topmostSubform[0].Page2[0].f2_05[0]" },
-  { kind: "text", domainKey: "line15_taxable_income",           pdfField: "topmostSubform[0].Page2[0].f2_06[0]" },
+  {
+    kind: "text",
+    domainKey: "line13_qbi_deduction",
+    pdfField: "topmostSubform[0].Page2[0].f2_03[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line13b_additional_deductions",
+    pdfField: "topmostSubform[0].Page2[0].f2_04[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line14_deductions_qbi_total",
+    pdfField: "topmostSubform[0].Page2[0].f2_05[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line15_taxable_income",
+    pdfField: "topmostSubform[0].Page2[0].f2_06[0]",
+  },
 
   // ── Page 2: Tax and Credits (Lines 16–24) ────────────────────────────────
   // f2_07 = line 16 form-name text box (not a dollar field — skipped).
   // All tax lines shifted +1 vs the pre-2025 descriptor.
-  { kind: "text", domainKey: "line16_income_tax",               pdfField: "topmostSubform[0].Page2[0].f2_08[0]" },
-  { kind: "text", domainKey: "line17_additional_taxes",         pdfField: "topmostSubform[0].Page2[0].f2_09[0]" },
-  { kind: "text", domainKey: "line18_total_tax_before_credits", pdfField: "topmostSubform[0].Page2[0].f2_10[0]" },
-  { kind: "text", domainKey: "line19_child_tax_credit",         pdfField: "topmostSubform[0].Page2[0].f2_11[0]" },
-  { kind: "text", domainKey: "line20_nonrefundable_credits",    pdfField: "topmostSubform[0].Page2[0].f2_12[0]" },
-  { kind: "text", domainKey: "line21_credits_total",            pdfField: "topmostSubform[0].Page2[0].f2_13[0]" },
-  { kind: "text", domainKey: "line22_tax_after_credits",        pdfField: "topmostSubform[0].Page2[0].f2_14[0]" },
-  { kind: "text", domainKey: "line23_other_taxes",              pdfField: "topmostSubform[0].Page2[0].f2_15[0]" },
-  { kind: "text", domainKey: "line24_total_tax",                pdfField: "topmostSubform[0].Page2[0].f2_16[0]" },
+  {
+    kind: "text",
+    domainKey: "line16_income_tax",
+    pdfField: "topmostSubform[0].Page2[0].f2_08[0]",
+  },
+  {
+    kind: "checkbox",
+    domainKey: "form8814_tax",
+    pdfField: "topmostSubform[0].Page2[0].c2_9[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line17_additional_taxes",
+    pdfField: "topmostSubform[0].Page2[0].f2_09[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line18_total_tax_before_credits",
+    pdfField: "topmostSubform[0].Page2[0].f2_10[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line19_child_tax_credit",
+    pdfField: "topmostSubform[0].Page2[0].f2_11[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line20_nonrefundable_credits",
+    pdfField: "topmostSubform[0].Page2[0].f2_12[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line21_credits_total",
+    pdfField: "topmostSubform[0].Page2[0].f2_13[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line22_tax_after_credits",
+    pdfField: "topmostSubform[0].Page2[0].f2_14[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line23_other_taxes",
+    pdfField: "topmostSubform[0].Page2[0].f2_15[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line24_total_tax",
+    pdfField: "topmostSubform[0].Page2[0].f2_16[0]",
+  },
 
   // ── Page 2: Payments (Lines 25a–33) ──────────────────────────────────────
   // All payment lines shifted +1. f2_22 = SSN field — skipped.
-  { kind: "text", domainKey: "line25a_w2_withheld",             pdfField: "topmostSubform[0].Page2[0].f2_17[0]" },
-  { kind: "text", domainKey: "line25b_withheld_1099",           pdfField: "topmostSubform[0].Page2[0].f2_18[0]" },
-  { kind: "text", domainKey: "line25c_additional_medicare_withheld", pdfField: "topmostSubform[0].Page2[0].f2_19[0]" },
-  { kind: "text", domainKey: "line25d_total_withholding",       pdfField: "topmostSubform[0].Page2[0].f2_20[0]" },
-  { kind: "text", domainKey: "line26_estimated_tax",            pdfField: "topmostSubform[0].Page2[0].f2_21[0]" },
+  {
+    kind: "text",
+    domainKey: "line25a_w2_withheld",
+    pdfField: "topmostSubform[0].Page2[0].f2_17[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line25b_withheld_1099",
+    pdfField: "topmostSubform[0].Page2[0].f2_18[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line25c_total",
+    pdfField: "topmostSubform[0].Page2[0].f2_19[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line25d_total_withholding",
+    pdfField: "topmostSubform[0].Page2[0].f2_20[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line26_estimated_tax",
+    pdfField: "topmostSubform[0].Page2[0].f2_21[0]",
+  },
   // f2_22 skipped (SSN field)
-  { kind: "text", domainKey: "line27_eitc",                     pdfField: "topmostSubform[0].Page2[0].f2_23[0]" },
-  { kind: "text", domainKey: "line28_actc",                     pdfField: "topmostSubform[0].Page2[0].f2_24[0]" },
-  { kind: "text", domainKey: "line29_refundable_aoc",           pdfField: "topmostSubform[0].Page2[0].f2_25[0]" },
-  { kind: "text", domainKey: "line30_refundable_adoption",      pdfField: "topmostSubform[0].Page2[0].f2_26[0]" },
-  { kind: "text", domainKey: "line31_additional_payments",      pdfField: "topmostSubform[0].Page2[0].f2_27[0]" },
-  { kind: "text", domainKey: "line32_refundable_credits_total", pdfField: "topmostSubform[0].Page2[0].f2_28[0]" },
-  { kind: "text", domainKey: "line33_total_payments",           pdfField: "topmostSubform[0].Page2[0].f2_29[0]" },
+  {
+    kind: "text",
+    domainKey: "line27_eitc",
+    pdfField: "topmostSubform[0].Page2[0].f2_23[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line28_actc",
+    pdfField: "topmostSubform[0].Page2[0].f2_24[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line29_refundable_aoc",
+    pdfField: "topmostSubform[0].Page2[0].f2_25[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line30_refundable_adoption",
+    pdfField: "topmostSubform[0].Page2[0].f2_26[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line31_additional_payments",
+    pdfField: "topmostSubform[0].Page2[0].f2_27[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line32_refundable_credits_total",
+    pdfField: "topmostSubform[0].Page2[0].f2_28[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line33_total_payments",
+    pdfField: "topmostSubform[0].Page2[0].f2_29[0]",
+  },
 
-  // ── Page 2: Refund / Amount Owed (Lines 34–37) ────────────────────────────
-  { kind: "text", domainKey: "line34_overpayment",              pdfField: "topmostSubform[0].Page2[0].f2_30[0]" },
-  { kind: "text", domainKey: "line35a_refund",                  pdfField: "topmostSubform[0].Page2[0].f2_31[0]" },
-  { kind: "text", domainKey: "line37_amount_owed",              pdfField: "topmostSubform[0].Page2[0].f2_35[0]" },
+  // ── Page 2: Refund / Amount Owed / Penalty (Lines 34–38) ───────────────────
+  {
+    kind: "text",
+    domainKey: "line34_overpayment",
+    pdfField: "topmostSubform[0].Page2[0].f2_30[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line35a_refund",
+    pdfField: "topmostSubform[0].Page2[0].f2_31[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line37_amount_owed",
+    pdfField: "topmostSubform[0].Page2[0].f2_35[0]",
+  },
+  {
+    kind: "text",
+    domainKey: "line38_underpayment_penalty",
+    // 2025 canonical field and widget: f2_36, x=410.4–481.65, y=216–228.
+    pdfField: "topmostSubform[0].Page2[0].f2_36[0]",
+  },
 ];
 
 export const irs1040Pdf: PdfFormDescriptor = {
@@ -133,27 +443,145 @@ export const irs1040Pdf: PdfFormDescriptor = {
   // Year-pinned: /pub/irs-pdf/f1040.pdf silently changes revision each filing
   // season; this module is the 2025 form and must always fetch the 2025 PDF.
   pdfUrl: "https://www.irs.gov/pub/irs-prior/f1040--2025.pdf",
+  projectFields(fields, allPending) {
+    const rollover = fields.line5c_pension_rollover === true;
+    if (fields.line5c_pension_rollover !== undefined &&
+        typeof fields.line5c_pension_rollover !== "boolean") {
+      throw new Error("Form 1040 PDF line 5c rollover must be a boolean");
+    }
+    if (rollover || allPending.f1099r !== undefined) {
+      const source = f1099rInputSchema.safeParse(allPending.f1099r);
+      if (!source.success) {
+        throw new Error("Form 1040 PDF line 5c needs valid Form 1099-R source facts");
+      }
+      if (rollover !== source.data.f1099rs.some(isPensionDirectRollover)) {
+        throw new Error(
+          "Form 1040 PDF line 5c rollover does not match the payer-reported Form 1099-R code G",
+        );
+      }
+    }
+    if (allPending.w2g !== undefined) {
+      const source = w2gInputSchema.safeParse(allPending.w2g);
+      if (!source.success) {
+        throw new Error("Form 1040 W-2G withholding needs valid payer-issued source facts");
+      }
+      if (source.data.w2gs.some((item) => (item.box4_federal_withheld ?? 0) > 0)) {
+        throw new Error(
+          "Form 1040 W-2G withholding cannot render until its payer-issued W-2G attachment is supported",
+        );
+      }
+    }
+    if (
+      typeof fields.line13b_additional_deductions === "number" &&
+      fields.line13b_additional_deductions > 0
+    ) {
+      const projected = schedule1aPdf.projectFields?.(
+        allPending.schedule1a ?? {},
+        allPending,
+      );
+      if (projected?.line38_total !== fields.line13b_additional_deductions) {
+        throw new Error(
+          "Form 1040 PDF line 13b needs a reconciled Schedule 1-A page",
+        );
+      }
+    }
+    const child = form8814ParentPrintAmounts(allPending);
+    return {
+      ...fields,
+      print_form8814_line3a_included: child.dividends > 0,
+      print_form8814_line3b_included: child.dividends > 0,
+      print_form8814_line7a_included: child.capitalGain > 0,
+      print_form8814_line7a_note: child.capitalGain > 0 &&
+          typeof fields.line7a_cap_gain_distrib === "number"
+        ? `Form 8814 $${child.capitalGain}`
+        : undefined,
+    };
+  },
   fields,
+  async decoratePages(document, pages, fields) {
+    const note = fields.print_form8814_line7a_note;
+    const page = pages[0];
+    if (!page || typeof note !== "string") return;
+    const font = await document.embedFont(StandardFonts.Helvetica);
+    // The 2025 source PDF places line 7a's dotted space at x312-470,
+    // y91-101; the amount field starts at x504. Keep attribution on that line.
+    page.drawRectangle({
+      x: 312,
+      y: 91,
+      width: 158,
+      height: 11,
+      color: rgb(1, 1, 1),
+    });
+    page.drawText(note, { x: 315, y: 93, size: 7, font });
+  },
   filerFields: [
     // domainKey uses dot-notation to traverse FilerIdentity (resolved in builder).
     // ── Primary taxpayer ────────────────────────────────────────────────────
     // Field numbers verified against 2025 IRS f1040.pdf AcroForm layer.
     // f1_14 = "Your first name and middle initial", f1_15 = "Last name", f1_16 = SSN (maxLen=9)
-    { kind: "text", domainKey: "firstNameWithInitial", pdfField: "topmostSubform[0].Page1[0].f1_14[0]" },
-    { kind: "text", domainKey: "lastName",       pdfField: "topmostSubform[0].Page1[0].f1_15[0]" },
-    { kind: "text", domainKey: "primarySSN",     pdfField: "topmostSubform[0].Page1[0].f1_16[0]" },
+    {
+      kind: "text",
+      domainKey: "firstNameWithInitial",
+      pdfField: "topmostSubform[0].Page1[0].f1_14[0]",
+    },
+    {
+      kind: "text",
+      domainKey: "lastName",
+      pdfField: "topmostSubform[0].Page1[0].f1_15[0]",
+    },
+    {
+      kind: "text",
+      domainKey: "primarySSN",
+      pdfField: "topmostSubform[0].Page1[0].f1_16[0]",
+    },
     // ── Sign Here block (page 2): occupation ───────────────────────────────
-    { kind: "text", domainKey: "occupation",     pdfField: "topmostSubform[0].Page2[0].f2_40[0]" },
-    { kind: "text", domainKey: "spouse.occupation", pdfField: "topmostSubform[0].Page2[0].f2_42[0]" },
+    {
+      kind: "text",
+      domainKey: "occupation",
+      pdfField: "topmostSubform[0].Page2[0].f2_40[0]",
+    },
+    {
+      kind: "text",
+      domainKey: "spouse.occupation",
+      pdfField: "topmostSubform[0].Page2[0].f2_42[0]",
+    },
     // ── Spouse ──────────────────────────────────────────────────────────────
     // f1_17 = "Spouse's first name and middle initial", f1_18 = "Last name", f1_19 = spouse SSN
-    { kind: "text", domainKey: "spouse.firstName", pdfField: "topmostSubform[0].Page1[0].f1_17[0]" },
-    { kind: "text", domainKey: "spouse.lastName",  pdfField: "topmostSubform[0].Page1[0].f1_18[0]" },
-    { kind: "text", domainKey: "spouse.ssn",       pdfField: "topmostSubform[0].Page1[0].f1_19[0]" },
+    {
+      kind: "text",
+      domainKey: "spouse.firstName",
+      pdfField: "topmostSubform[0].Page1[0].f1_17[0]",
+    },
+    {
+      kind: "text",
+      domainKey: "spouse.lastName",
+      pdfField: "topmostSubform[0].Page1[0].f1_18[0]",
+    },
+    {
+      kind: "text",
+      domainKey: "spouse.ssn",
+      pdfField: "topmostSubform[0].Page1[0].f1_19[0]",
+    },
     // ── Address ─────────────────────────────────────────────────────────────
-    { kind: "text", domainKey: "address.line1",  pdfField: "topmostSubform[0].Page1[0].Address_ReadOrder[0].f1_20[0]" },
-    { kind: "text", domainKey: "address.city",   pdfField: "topmostSubform[0].Page1[0].Address_ReadOrder[0].f1_22[0]" },
-    { kind: "text", domainKey: "address.state",  pdfField: "topmostSubform[0].Page1[0].Address_ReadOrder[0].f1_23[0]" },
-    { kind: "text", domainKey: "address.zip",    pdfField: "topmostSubform[0].Page1[0].Address_ReadOrder[0].f1_24[0]" },
+    {
+      kind: "text",
+      domainKey: "address.line1",
+      pdfField: "topmostSubform[0].Page1[0].Address_ReadOrder[0].f1_20[0]",
+    },
+    {
+      kind: "text",
+      domainKey: "address.city",
+      pdfField: "topmostSubform[0].Page1[0].Address_ReadOrder[0].f1_22[0]",
+    },
+    {
+      kind: "text",
+      domainKey: "address.state",
+      pdfField: "topmostSubform[0].Page1[0].Address_ReadOrder[0].f1_23[0]",
+    },
+    {
+      kind: "text",
+      domainKey: "address.zip",
+      pdfField: "topmostSubform[0].Page1[0].Address_ReadOrder[0].f1_24[0]",
+    },
   ],
 };

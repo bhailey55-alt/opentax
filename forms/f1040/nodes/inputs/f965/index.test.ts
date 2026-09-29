@@ -1,360 +1,363 @@
 import { assertEquals, assertThrows } from "@std/assert";
-import { f965, TransferAgreementType } from "./index.ts";
 import { fieldsOf } from "../../../../../core/test-utils/output.ts";
 import { schedule2 } from "../../intermediate/aggregation/schedule2/index.ts";
+import {
+  currentYear965Payment,
+  f965,
+  type F965Input,
+  inputSchema,
+  unpaidLiability,
+} from "./index.ts";
 
-function minimalItem(overrides: Record<string, unknown> = {}) {
-  return {
-    tax_year_of_inclusion: "2017",
-    net_965_tax_liability: 0,
-    installment_election: false,
-    current_year_installment: 0,
+function source(overrides: Partial<F965Input> = {}) {
+  return inputSchema.parse({
+    reporting_year: 2025,
+    amended_report: false,
+    f965s: [{
+      entry_type: "original",
+      source_document_reference:
+        "2018 filed Form 965-A and 2025 payment ledger",
+      tax_year_of_inclusion: 2018,
+      net_tax_with_965: 52_000,
+      net_tax_without_965: 20_000,
+      installment_election: true,
+      net_tax_adjustment: 0,
+      paid_by_installment_year: [
+        2_560,
+        2_560,
+        2_560,
+        2_560,
+        2_560,
+        4_800,
+        6_400,
+        8_000,
+      ],
+      current_year_payment: 8_000,
+      current_year_payment_reference: "2025 IRS payment confirmation",
+    }],
+    s_corp_calculations: [],
+    s_corp_deferred_rows: [],
+    transfer_agreements: [],
     ...overrides,
-  };
+  });
 }
 
-function compute(items: ReturnType<typeof minimalItem>[]) {
-  return f965.compute({ taxYear: 2025, formType: "f1040" }, { f965s: items });
-}
-
-function findOutput(result: ReturnType<typeof compute>, nodeType: string) {
-  return result.outputs.find((o) => o.nodeType === nodeType);
-}
-
-// =============================================================================
-// 1. Input Schema Validation
-// =============================================================================
-
-Deno.test("f965.inputSchema: valid minimal item passes", () => {
-  const parsed = f965.inputSchema.safeParse({ f965s: [minimalItem()] });
-  assertEquals(parsed.success, true);
+Deno.test("Form 965-A uses cumulative payments and the actual TY2025 payment", () => {
+  const input = source();
+  assertEquals(currentYear965Payment(input), 8_000);
+  assertEquals(unpaidLiability(input, input.f965s[0]), 0);
+  const result = f965.compute(
+    { taxYear: 2025, formType: "f1040" },
+    input,
+  );
+  assertEquals(
+    fieldsOf(result.outputs, schedule2)?.line20_965_tax_installment,
+    8_000,
+  );
 });
 
-Deno.test("f965.inputSchema: empty array fails (min 1)", () => {
-  const parsed = f965.inputSchema.safeParse({ f965s: [] });
-  assertEquals(parsed.success, false);
-});
-
-Deno.test("f965.inputSchema: missing tax_year_of_inclusion fails", () => {
-  const item = minimalItem();
-  delete (item as Record<string, unknown>).tax_year_of_inclusion;
-  const parsed = f965.inputSchema.safeParse({ f965s: [item] });
-  assertEquals(parsed.success, false);
-});
-
-Deno.test("f965.inputSchema: missing net_965_tax_liability fails", () => {
-  const item = minimalItem();
-  delete (item as Record<string, unknown>).net_965_tax_liability;
-  const parsed = f965.inputSchema.safeParse({ f965s: [item] });
-  assertEquals(parsed.success, false);
-});
-
-Deno.test("f965.inputSchema: missing installment_election fails", () => {
-  const item = minimalItem();
-  delete (item as Record<string, unknown>).installment_election;
-  const parsed = f965.inputSchema.safeParse({ f965s: [item] });
-  assertEquals(parsed.success, false);
-});
-
-Deno.test("f965.inputSchema: missing current_year_installment fails", () => {
-  const item = minimalItem();
-  delete (item as Record<string, unknown>).current_year_installment;
-  const parsed = f965.inputSchema.safeParse({ f965s: [item] });
-  assertEquals(parsed.success, false);
-});
-
-Deno.test("f965.inputSchema: negative net_965_tax_liability fails", () => {
-  const parsed = f965.inputSchema.safeParse({
-    f965s: [minimalItem({ net_965_tax_liability: -1 })],
+Deno.test("Form 965-A retains an unpaid liability without inventing a 2025 payment", () => {
+  const input = source({
+    f965s: [{
+      ...source().f965s[0],
+      tax_year_of_inclusion: 2017,
+      paid_by_installment_year: [
+        2_560,
+        2_560,
+        2_560,
+        2_560,
+        2_560,
+        4_800,
+        6_400,
+        0,
+      ],
+      current_year_payment: 0,
+      current_year_payment_reference: undefined,
+    }],
   });
-  assertEquals(parsed.success, false);
+  assertEquals(unpaidLiability(input, input.f965s[0]), 8_000);
+  assertEquals(
+    f965.compute({ taxYear: 2025, formType: "f1040" }, input).outputs,
+    [],
+  );
 });
 
-Deno.test("f965.inputSchema: negative current_year_installment fails", () => {
-  const parsed = f965.inputSchema.safeParse({
-    f965s: [minimalItem({ current_year_installment: -500 })],
-  });
-  assertEquals(parsed.success, false);
+Deno.test("Form 965-A rejects unsourced payments and overpaid balances", () => {
+  assertThrows(() =>
+    source({
+      f965s: [{
+        ...source().f965s[0],
+        current_year_payment_reference: undefined,
+      }],
+    })
+  );
+  assertThrows(() =>
+    source({
+      f965s: [{
+        ...source().f965s[0],
+        paid_by_installment_year: Array(8).fill(8_000),
+      }],
+    })
+  );
 });
 
-Deno.test("f965.inputSchema: negative s_corp_deferred_amount fails", () => {
-  const parsed = f965.inputSchema.safeParse({
-    f965s: [minimalItem({ s_corp_deferred_amount: -100 })],
-  });
-  assertEquals(parsed.success, false);
-});
-
-Deno.test("f965.inputSchema: negative remaining_balance fails", () => {
-  const parsed = f965.inputSchema.safeParse({
-    f965s: [minimalItem({ remaining_balance: -200 })],
-  });
-  assertEquals(parsed.success, false);
-});
-
-Deno.test("f965.inputSchema: invalid transfer_agreement_type fails", () => {
-  const parsed = f965.inputSchema.safeParse({
-    f965s: [minimalItem({ transfer_agreement_type: "INVALID" })],
-  });
-  assertEquals(parsed.success, false);
-});
-
-Deno.test("f965.inputSchema: all valid transfer_agreement_type values pass", () => {
-  for (const t of Object.values(TransferAgreementType)) {
-    const parsed = f965.inputSchema.safeParse({
-      f965s: [minimalItem({ transfer_agreement_type: t })],
-    });
-    assertEquals(parsed.success, true);
+Deno.test("Form 965-A S corporation deferral reduces installment-eligible liability", () => {
+  const original = source().f965s[0];
+  if (original.entry_type !== "original") {
+    throw new Error("Original Form 965 entry required");
   }
-});
-
-Deno.test("f965.inputSchema: optional fields absent passes", () => {
-  const parsed = f965.inputSchema.safeParse({ f965s: [minimalItem()] });
-  assertEquals(parsed.success, true);
-});
-
-Deno.test("f965.inputSchema: full item with all fields passes", () => {
-  const parsed = f965.inputSchema.safeParse({
-    f965s: [minimalItem({
-      net_965_tax_liability: 50000,
-      installment_election: true,
-      current_year_installment: 12500,
-      transfer_agreement_type: TransferAgreementType.NONE,
-      s_corp_deferred_amount: 0,
-      remaining_balance: 0,
-    })],
+  const input = source({
+    f965s: [{
+      ...original,
+      net_tax_with_965: 62_000,
+      paid_by_installment_year: [
+        2_560,
+        2_560,
+        2_560,
+        2_560,
+        2_560,
+        4_800,
+        6_400,
+        8_000,
+      ],
+    }],
+    s_corp_calculations: [{
+      inclusion_year: 2018,
+      source_document_reference: "2018 S corporation section 965 statement",
+      corporation_name: "Example S Corp",
+      corporation_ein: "123456789",
+      net_tax_with_965: 15_000,
+      net_tax_without_965: 5_000,
+      deferral_election: true,
+    }],
+    s_corp_deferred_rows: [{
+      election_or_transfer_year: 2018,
+      source_document_reference: "2024 filed Form 965-A Part IV",
+      corporation_name: "Example S Corp",
+      corporation_ein: "123456789",
+      beginning_deferred_liability: 10_000,
+      triggered_liability: 0,
+      transferred_liability: 0,
+    }],
   });
-  assertEquals(parsed.success, true);
+  assertEquals(unpaidLiability(input, input.f965s[0]), 0);
 });
 
-// =============================================================================
-// 2. Per-field routing
-// =============================================================================
-
-Deno.test("f965.compute: current_year_installment > 0 — routes to schedule2", () => {
-  const result = compute([minimalItem({ current_year_installment: 10000 })]);
-  const out = findOutput(result, "schedule2");
-  assertEquals(out?.nodeType, "schedule2");
-});
-
-Deno.test("f965.compute: current_year_installment = 0 — no output emitted", () => {
-  const result = compute([minimalItem({ current_year_installment: 0 })]);
-  assertEquals(result.outputs.length, 0);
-});
-
-Deno.test("f965.compute: current_year_installment absent (uses 0 default) — no output emitted", () => {
-  const result = compute([minimalItem()]);
-  assertEquals(result.outputs.length, 0);
-});
-
-Deno.test("f965.compute: current_year_installment routes to schedule2 line9_965_net_tax_liability", () => {
-  const result = compute([minimalItem({ current_year_installment: 8000 })]);
-  const fields = fieldsOf(result.outputs, schedule2)!;
-  assertEquals(fields.line9_965_net_tax_liability, 8000);
-});
-
-Deno.test("f965.compute: transfer_agreement_type does not change routing amount", () => {
-  const resultNone = compute([minimalItem({
-    current_year_installment: 5000,
-    transfer_agreement_type: TransferAgreementType.NONE,
-  })]);
-  const resultC = compute([minimalItem({
-    current_year_installment: 5000,
-    transfer_agreement_type: TransferAgreementType.C,
-  })]);
-  const fieldsNone = fieldsOf(resultNone.outputs, schedule2)!;
-  const fieldsC = fieldsOf(resultC.outputs, schedule2)!;
-  assertEquals(fieldsNone.line9_965_net_tax_liability, 5000);
-  assertEquals(fieldsC.line9_965_net_tax_liability, 5000);
-});
-
-Deno.test("f965.compute: installment_election false, current_year_installment 0 — no output", () => {
-  const result = compute([minimalItem({
-    installment_election: false,
-    current_year_installment: 0,
-  })]);
-  assertEquals(result.outputs.length, 0);
-});
-
-Deno.test("f965.compute: s_corp_deferred_amount does not route to schedule2", () => {
-  const result = compute([minimalItem({
-    s_corp_deferred_amount: 25000,
-    current_year_installment: 0,
-  })]);
-  // s_corp deferral is informational only — no output
-  assertEquals(result.outputs.length, 0);
-});
-
-// =============================================================================
-// 3. Aggregation — multiple items
-// =============================================================================
-
-Deno.test("f965.compute: multiple items — installments summed into one schedule2 output", () => {
-  const result = compute([
-    minimalItem({ tax_year_of_inclusion: "2017", current_year_installment: 8000 }),
-    minimalItem({ tax_year_of_inclusion: "2018", current_year_installment: 4000 }),
-  ]);
-  const fields = fieldsOf(result.outputs, schedule2)!;
-  assertEquals(fields.line9_965_net_tax_liability, 12000);
-  assertEquals(result.outputs.filter((o) => o.nodeType === "schedule2").length, 1);
-});
-
-Deno.test("f965.compute: multiple items, one zero — sum excludes zero", () => {
-  const result = compute([
-    minimalItem({ tax_year_of_inclusion: "2017", current_year_installment: 6000 }),
-    minimalItem({ tax_year_of_inclusion: "2018", current_year_installment: 0 }),
-  ]);
-  const fields = fieldsOf(result.outputs, schedule2)!;
-  assertEquals(fields.line9_965_net_tax_liability, 6000);
-});
-
-Deno.test("f965.compute: multiple items all zero — no output", () => {
-  const result = compute([
-    minimalItem({ tax_year_of_inclusion: "2017", current_year_installment: 0 }),
-    minimalItem({ tax_year_of_inclusion: "2018", current_year_installment: 0 }),
-  ]);
-  assertEquals(result.outputs.length, 0);
-});
-
-// =============================================================================
-// 4. Thresholds
-// =============================================================================
-
-Deno.test("f965.compute: 8% installment (year 1–5) — exact amount passed through", () => {
-  // Net liability 100000, year 1–5 installment = 8% = 8000
-  const result = compute([minimalItem({
-    net_965_tax_liability: 100_000,
-    installment_election: true,
-    current_year_installment: 8_000,
-  })]);
-  const fields = fieldsOf(result.outputs, schedule2)!;
-  assertEquals(fields.line9_965_net_tax_liability, 8_000);
-});
-
-Deno.test("f965.compute: 25% installment (year 8 — final) — exact amount passed through", () => {
-  // Net liability 100000, year 8 installment = 25% = 25000
-  const result = compute([minimalItem({
-    net_965_tax_liability: 100_000,
-    installment_election: true,
-    current_year_installment: 25_000,
-  })]);
-  const fields = fieldsOf(result.outputs, schedule2)!;
-  assertEquals(fields.line9_965_net_tax_liability, 25_000);
-});
-
-// =============================================================================
-// 5. Hard Validation
-// =============================================================================
-
-Deno.test("f965.compute: throws on negative current_year_installment", () => {
-  assertThrows(
-    () => compute([minimalItem({ current_year_installment: -1 })]),
-    Error,
+Deno.test("Form 965-A netted adjustment and transfer require reconciling facts", () => {
+  const row = source().f965s[0];
+  const transaction = {
+    ...row,
+    net_tax_adjustment: 100,
+    net_tax_adjustment_kind: "netted_adjustment_and_transfer" as const,
+    transfer_agreement_file_name: "Form965C.pdf",
+    counterparty_tax_id: { kind: "ein" as const, value: "987654321" },
+    netted_adjustment_and_transfer: {
+      adjustment_amount: 200,
+      transferred_out_amount: -100,
+      explanation: "IRS examination adjustment followed by transfer",
+      source_document_reference: "2025 signed transfer agreement",
+    },
+  };
+  const input = source({
+    f965s: [transaction],
+    transfer_agreements: [{
+      agreement_type: "965-C",
+      file_name: "Form965C.pdf",
+      signed_pdf_base64: "JVBERi0x",
+      source_document_reference: "2025 signed Form 965-C",
+    }],
+  });
+  assertEquals(unpaidLiability(input, input.f965s[0]), 100);
+  assertThrows(() =>
+    source({
+      f965s: [{
+        ...transaction,
+        netted_adjustment_and_transfer: undefined,
+      }],
+    })
   );
 });
 
-Deno.test("f965.compute: throws on negative net_965_tax_liability", () => {
-  assertThrows(
-    () => compute([minimalItem({ net_965_tax_liability: -1 })]),
-    Error,
+Deno.test("Form 965-A multiple transferees must sum to Part IV transfer", () => {
+  const annualRow = {
+    election_or_transfer_year: 2018,
+    source_document_reference: "2025 signed Form 965-D agreements",
+    corporation_name: "Example S Corp",
+    corporation_ein: "123456789",
+    beginning_deferred_liability: 10_000,
+    triggered_liability: 0,
+    transferred_liability: -6_000,
+    transfer_agreement_links: [{
+      counterparty_tax_id: { kind: "ein" as const, value: "123123123" },
+      file_name: "Form965D1.pdf",
+    }, {
+      counterparty_tax_id: { kind: "ssn" as const, value: "321321321" },
+      file_name: "Form965D2.pdf",
+    }],
+    counterparty_tax_id: { kind: "ein" as const, value: "123123123" },
+    multiple_transferees: [
+      {
+        tax_id: { kind: "ein" as const, value: "123123123" },
+        transferred_amount: 2_000,
+      },
+      {
+        tax_id: { kind: "ssn" as const, value: "321321321" },
+        transferred_amount: 4_000,
+      },
+    ],
+  };
+  const input = source({
+    s_corp_deferred_rows: [annualRow],
+    transfer_agreements: [{
+      agreement_type: "965-D",
+      file_name: "Form965D1.pdf",
+      signed_pdf_base64: "JVBERi0x",
+      source_document_reference: "2025 first signed Form 965-D",
+    }, {
+      agreement_type: "965-D",
+      file_name: "Form965D2.pdf",
+      signed_pdf_base64: "JVBERi0x",
+      source_document_reference: "2025 second signed Form 965-D",
+    }],
+  });
+  assertEquals(input.s_corp_deferred_rows[0].transferred_liability, -6_000);
+  assertThrows(() =>
+    source({
+      s_corp_deferred_rows: [{
+        ...annualRow,
+        transfer_agreement_links: annualRow.transfer_agreement_links.slice(
+          0,
+          1,
+        ),
+      }],
+      transfer_agreements: input.transfer_agreements,
+    })
+  );
+  assertThrows(() =>
+    source({
+      s_corp_deferred_rows: [{
+        ...annualRow,
+        transferred_liability: -5_000,
+      }],
+      transfer_agreements: input.transfer_agreements,
+    })
   );
 });
 
-Deno.test("f965.compute: does not throw when all optional fields absent", () => {
-  const result = compute([minimalItem()]);
-  assertEquals(result.outputs.length, 0);
+Deno.test("Form 965-A Part IV transfer in has one Form 965-D counterparty and no beginning balance", () => {
+  const transferIn = {
+    election_or_transfer_year: 2025,
+    source_document_reference: "2025 signed transfer-in agreement",
+    corporation_name: "Acquired S Corp",
+    corporation_ein: "456789123",
+    beginning_deferred_liability: 0,
+    triggered_liability: 0,
+    transferred_liability: 500,
+    counterparty_tax_id: { kind: "ein" as const, value: "987654321" },
+    transfer_agreement_links: [{
+      counterparty_tax_id: { kind: "ein" as const, value: "987654321" },
+      file_name: "Form965DIn.pdf",
+    }],
+  };
+  const agreement = {
+    agreement_type: "965-D" as const,
+    file_name: "Form965DIn.pdf",
+    signed_pdf_base64: "JVBERi0x",
+    source_document_reference: "2025 signed Form 965-D transfer in",
+  };
+  assertEquals(
+    source({
+      s_corp_deferred_rows: [transferIn],
+      transfer_agreements: [agreement],
+    }).s_corp_deferred_rows[0].transferred_liability,
+    500,
+  );
+  assertThrows(() =>
+    source({
+      s_corp_deferred_rows: [{
+        ...transferIn,
+        beginning_deferred_liability: 100,
+      }],
+      transfer_agreements: [agreement],
+    })
+  );
 });
 
-// =============================================================================
-// 6. Output routing
-// =============================================================================
-
-Deno.test("f965.compute: schedule2 output has correct nodeType", () => {
-  const result = compute([minimalItem({ current_year_installment: 5000 })]);
-  const out = findOutput(result, schedule2.nodeType);
-  assertEquals(out?.nodeType, "schedule2");
-});
-
-Deno.test("f965.compute: no schedule2 output when installment is zero", () => {
-  const result = compute([minimalItem({ current_year_installment: 0 })]);
-  const out = findOutput(result, "schedule2");
-  assertEquals(out, undefined);
-});
-
-// =============================================================================
-// 7. Edge Cases
-// =============================================================================
-
-Deno.test("f965.compute: transfer_agreement_type C — still routes installment to schedule2", () => {
-  const result = compute([minimalItem({
-    current_year_installment: 9000,
-    transfer_agreement_type: TransferAgreementType.C,
-  })]);
-  const fields = fieldsOf(result.outputs, schedule2)!;
-  assertEquals(fields.line9_965_net_tax_liability, 9000);
-});
-
-Deno.test("f965.compute: transfer_agreement_type D — still routes installment to schedule2", () => {
-  const result = compute([minimalItem({
-    current_year_installment: 7500,
-    transfer_agreement_type: TransferAgreementType.D,
-  })]);
-  const fields = fieldsOf(result.outputs, schedule2)!;
-  assertEquals(fields.line9_965_net_tax_liability, 7500);
-});
-
-Deno.test("f965.compute: transfer_agreement_type E — still routes installment to schedule2", () => {
-  const result = compute([minimalItem({
-    current_year_installment: 6000,
-    transfer_agreement_type: TransferAgreementType.E,
-  })]);
-  const fields = fieldsOf(result.outputs, schedule2)!;
-  assertEquals(fields.line9_965_net_tax_liability, 6000);
-});
-
-Deno.test("f965.compute: remaining_balance present — does not route to schedule2", () => {
-  const result = compute([minimalItem({
-    current_year_installment: 0,
-    remaining_balance: 50000,
-  })]);
-  // remaining_balance is informational — no output
-  assertEquals(result.outputs.length, 0);
-});
-
-Deno.test("f965.compute: large installment amount — routes correctly", () => {
-  const result = compute([minimalItem({ current_year_installment: 999_999 })]);
-  const fields = fieldsOf(result.outputs, schedule2)!;
-  assertEquals(fields.line9_965_net_tax_liability, 999_999);
-});
-
-// =============================================================================
-// 8. Smoke Test
-// =============================================================================
-
-Deno.test("f965.compute: smoke test — two inclusion years, installment election, year 8 final payment", () => {
-  const result = compute([
-    // 2017 inclusion: net liability 80000, year 8 = 25% = 20000
-    minimalItem({
-      tax_year_of_inclusion: "2017",
-      net_965_tax_liability: 80_000,
-      installment_election: true,
-      current_year_installment: 20_000,
-      transfer_agreement_type: TransferAgreementType.NONE,
-      s_corp_deferred_amount: 0,
-      remaining_balance: 0,
-    }),
-    // 2018 inclusion: net liability 40000, year 7 = 20% = 8000
-    minimalItem({
-      tax_year_of_inclusion: "2018",
-      net_965_tax_liability: 40_000,
-      installment_election: true,
-      current_year_installment: 8_000,
-      transfer_agreement_type: TransferAgreementType.NONE,
-      remaining_balance: 10_000,
-    }),
-  ]);
-
-  // Total installment = 20000 + 8000 = 28000 → schedule2 line9
-  const fields = fieldsOf(result.outputs, schedule2)!;
-  assertEquals(fields.line9_965_net_tax_liability, 28_000);
-  assertEquals(result.outputs.length, 1);
+Deno.test("Form 965-A consent-triggered liability needs its signed Form 965-E copy", () => {
+  const triggered = {
+    entry_type: "triggered_s_corp" as const,
+    source_document_reference: "2025 consent-triggering transaction",
+    tax_year_of_inclusion: 2025,
+    triggering_event_date: "2025-06-01",
+    installment_election: true,
+    triggered_liability: 1_000,
+    net_tax_adjustment: 0,
+    paid_by_installment_year: Array(8).fill(0),
+    current_year_payment: 0,
+    requires_965e_consent: true,
+    consent_agreement_file_name: "Form965E.pdf",
+    separate_965h_election_reference: "2025 separate section 965(h) election",
+  };
+  const deferred = {
+    election_or_transfer_year: 2018,
+    source_document_reference: "2018 deferral and 2025 consent transaction",
+    corporation_name: "Example S Corp",
+    corporation_ein: "123456789",
+    beginning_deferred_liability: 1_000,
+    triggered_liability: 1_000,
+    transferred_liability: 0,
+  };
+  assertThrows(() =>
+    source({
+      f965s: [source().f965s[0], triggered],
+      s_corp_deferred_rows: [deferred],
+    })
+  );
+  const input = source({
+    f965s: [source().f965s[0], triggered],
+    s_corp_deferred_rows: [deferred],
+    transfer_agreements: [{
+      agreement_type: "965-E",
+      file_name: "Form965E.pdf",
+      signed_pdf_base64: "JVBERi0x",
+      source_document_reference: "2025 signed Form 965-E",
+    }],
+  });
+  assertEquals(input.f965s[1].entry_type, "triggered_s_corp");
+  assertThrows(() =>
+    source({
+      ...input,
+      f965s: [input.f965s[0], {
+        ...triggered,
+        tax_year_of_inclusion: 2018,
+      }],
+    })
+  );
+  assertThrows(() =>
+    source({
+      ...input,
+      f965s: [input.f965s[0], {
+        ...triggered,
+        triggering_event_date: "2025-02-30",
+      }],
+    })
+  );
+  assertThrows(() =>
+    source({
+      ...input,
+      f965s: [input.f965s[0], {
+        ...triggered,
+        separate_965h_election_reference: undefined,
+      }],
+    })
+  );
+  assertThrows(() =>
+    source({
+      ...input,
+      transfer_agreements: [{
+        ...input.transfer_agreements[0],
+        agreement_type: "965-D",
+      }],
+    })
+  );
 });

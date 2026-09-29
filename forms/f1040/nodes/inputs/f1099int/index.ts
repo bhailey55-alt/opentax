@@ -3,30 +3,46 @@ import type {
   NodeOutput,
   NodeResult,
 } from "../../../../../core/types/tax-node.ts";
-import { TaxNode, output, type AtLeastOne } from "../../../../../core/types/tax-node.ts";
+import {
+  type AtLeastOne,
+  output,
+  TaxNode,
+} from "../../../../../core/types/tax-node.ts";
 import { OutputNodes } from "../../../../../core/types/output-nodes.ts";
 import { f1040 } from "../../outputs/f1040/index.ts";
 import { schedule1 } from "../../outputs/schedule1/index.ts";
 import { form6251 } from "../../intermediate/forms/form6251/index.ts";
-import { IncomeCategory, form_1116 } from "../../intermediate/forms/form_1116/index.ts";
-import { schedule3 } from "../../intermediate/aggregation/schedule3/index.ts";
+import {
+  ForeignTaxCreditMethod,
+  ForeignTaxKind,
+  form_1116,
+  IncomeCategory,
+} from "../../intermediate/forms/form_1116/index.ts";
 import { schedule_b } from "../../intermediate/aggregation/schedule_b/index.ts";
+import { form4952 } from "../../intermediate/forms/form4952/index.ts";
+import { agi_aggregator } from "../../intermediate/aggregation/agi_aggregator/index.ts";
 import type { NodeContext } from "../../../../../core/types/node-context.ts";
+import { sellerFinancedBuyerSchema } from "../../../seller_financed_buyer.ts";
 
 export const itemSchema = z.object({
   payer_name: z.string().min(1),
   payer_tin: z.string().optional(),
   seller_financed: z.boolean().optional(),
-  payer_ssn: z.string().optional(),
-  payer_address: z.string().optional(),
-  payer_city_state_zip: z.string().optional(),
+  buyer_used_as_personal_residence: z.boolean().optional(),
+  seller_financed_buyer: sellerFinancedBuyerSchema.optional(),
   box1: z.number().nonnegative().optional(),
+  // Affirm that this payer's taxable interest is from property held for
+  // investment and is not already in Form 4952's manual "other" income.
+  investment_property_for_form4952: z.boolean().optional(),
   box2: z.number().nonnegative().optional(),
   box3: z.number().nonnegative().optional(),
   box4: z.number().nonnegative().optional(),
   box5: z.number().nonnegative().optional(),
   box6: z.number().nonnegative().optional(),
   box7: z.string().optional(),
+  foreign_source_interest_usd: z.number().nonnegative().optional(),
+  foreign_tax_irs_country_code: z.string().length(2).optional(),
+  foreign_tax_source_document_reference: z.string().trim().min(1).optional(),
   box8: z.number().nonnegative().optional(),
   box9: z.number().nonnegative().optional(),
   box10: z.number().nonnegative().optional(),
@@ -47,14 +63,10 @@ export const itemSchema = z.object({
 
 export const inputSchema = z.object({
   f1099ints: z.array(itemSchema).min(1),
-  filing_status: z.string().optional(),
 });
 
 type INTItem = z.infer<typeof itemSchema>;
 type INTInput = z.infer<typeof inputSchema>;
-
-const FOREIGN_TAX_SINGLE_THRESHOLD = 300;
-const FOREIGN_TAX_MFJ_THRESHOLD = 600;
 
 function validateIntItem(item: INTItem): void {
   const box8 = item.box8 ?? 0;
@@ -71,23 +83,46 @@ function validateIntItem(item: INTItem): void {
     );
   }
   if (item.seller_financed) {
-    if (!item.payer_ssn || item.payer_ssn.length !== 9) {
+    if (item.buyer_used_as_personal_residence === undefined) {
       throw new Error(
-        "INT validation error: payer SSN must be exactly 9 digits for seller-financed mortgages",
+        "INT validation error: seller-financed interest needs the buyer's personal-residence answer",
       );
     }
-    if (!item.payer_address || item.payer_address.length === 0) {
+    if (
+      item.buyer_used_as_personal_residence && !item.seller_financed_buyer
+    ) {
       throw new Error(
-        "INT validation error: payer address is required for seller-financed mortgages",
+        "INT validation error: personal-residence seller financing needs structured buyer name, SSN, and address",
       );
     }
+    if (
+      (item.box1 ?? 0) <= 0 || (item.box3 ?? 0) > 0 || (item.box10 ?? 0) > 0
+    ) {
+      throw new Error(
+        "INT validation error: seller-financed interest must be a positive box 1 amount",
+      );
+    }
+  } else if (
+    item.seller_financed_buyer ||
+    item.buyer_used_as_personal_residence !== undefined
+  ) {
+    throw new Error(
+      "INT validation error: seller-financed buyer facts require the seller-financed flag",
+    );
+  }
+  if (computeTaxableInterestNet(item) < 0) {
+    throw new Error(
+      "INT validation error: interest adjustments cannot exceed reported taxable interest",
+    );
   }
 }
 
 function computeTaxableInterestNet(item: INTItem): number {
   // Box 11 (bond premium) only offsets interest when taxpayer has made the
   // IRC §171 amortization election. Without the election, bond premium is not deductible.
-  const bondPremium = item.elect_bond_premium_amortization === true ? (item.box11 ?? 0) : 0;
+  const bondPremium = item.elect_bond_premium_amortization === true
+    ? (item.box11 ?? 0)
+    : 0;
   return (item.box1 ?? 0) +
     (item.box3 ?? 0) +
     (item.box10 ?? 0) -
@@ -99,13 +134,26 @@ function computeTaxableInterestNet(item: INTItem): number {
 }
 
 function scheduleBOutput(item: INTItem): NodeOutput {
+  const gross = (item.box1 ?? 0) + (item.box3 ?? 0) + (item.box10 ?? 0);
+  const bondPremium =
+    (item.elect_bond_premium_amortization === true ? item.box11 ?? 0 : 0) +
+    (item.box12 ?? 0);
   return output(schedule_b, {
+    interest_detail: {
       payer_name: item.payer_name,
-      taxable_interest_net: computeTaxableInterestNet(item),
-      box3_us_obligations: item.box3,
-    });
+      gross,
+      net: computeTaxableInterestNet(item),
+      nominee: item.nominee_interest ?? 0,
+      accrued: item.accrued_interest_paid ?? 0,
+      oid_adjustment: item.non_taxable_oid_adjustment ?? 0,
+      bond_premium: bondPremium,
+      ...(item.buyer_used_as_personal_residence && item.seller_financed_buyer
+        ? { seller_financed_buyer: item.seller_financed_buyer }
+        : {}),
+    },
+    box3_us_obligations: item.box3,
+  });
 }
-
 
 class F1099intNode extends TaxNode<typeof inputSchema> {
   readonly nodeType = "f1099int";
@@ -116,12 +164,13 @@ class F1099intNode extends TaxNode<typeof inputSchema> {
     f1040,
     form6251,
     form_1116,
-    schedule3,
+    agi_aggregator,
+    form4952,
   ]);
 
   compute(_ctx: NodeContext, input: INTInput): NodeResult {
     const parsed = inputSchema.parse(input);
-    const { f1099ints: int1099s, filing_status } = parsed;
+    const { f1099ints: int1099s } = parsed;
 
     for (const item of int1099s) {
       validateIntItem(item);
@@ -138,41 +187,84 @@ class F1099intNode extends TaxNode<typeof inputSchema> {
 
     const outputs: NodeOutput[] = int1099s.map(scheduleBOutput);
 
+    for (const item of int1099s) {
+      if (item.investment_property_for_form4952 !== true) continue;
+      const interest = computeTaxableInterestNet(item);
+      if (interest < 0) {
+        throw new Error(
+          "1099-INT investment-property interest is negative after adjustments",
+        );
+      }
+      if (interest > 0) {
+        outputs.push(this.outputNodes.output(form4952, {
+          source_1099_interest: interest,
+        }));
+      }
+      if ((item.box9 ?? 0) > 0) {
+        outputs.push(this.outputNodes.output(form4952, {
+          source_private_activity_bond_interest: item.box9!,
+        }));
+      }
+    }
+
     if (totalBox2 > 0) {
-      outputs.push(this.outputNodes.output(schedule1, { line18_early_withdrawal: totalBox2 }));
+      outputs.push(
+        this.outputNodes.output(schedule1, {
+          line18_early_withdrawal: totalBox2,
+        }),
+      );
     }
 
     const f1040Fields: Partial<z.infer<typeof f1040["inputSchema"]>> = {};
     if (totalBox4 > 0) f1040Fields.line25b_withheld_1099 = totalBox4;
     if (totalTaxExempt > 0) f1040Fields.line2a_tax_exempt = totalTaxExempt;
     if (Object.keys(f1040Fields).length > 0) {
-      outputs.push(this.outputNodes.output(f1040, f1040Fields as AtLeastOne<z.infer<typeof f1040["inputSchema"]>>));
+      outputs.push(
+        this.outputNodes.output(
+          f1040,
+          f1040Fields as AtLeastOne<z.infer<typeof f1040["inputSchema"]>>,
+        ),
+      );
+    }
+    if (totalTaxExempt > 0) {
+      outputs.push(this.outputNodes.output(agi_aggregator, {
+        tax_exempt_interest: totalTaxExempt,
+      }));
     }
 
     if (totalBox9 > 0) {
-      outputs.push(this.outputNodes.output(form6251, { line2g_pab_interest: totalBox9 }));
+      outputs.push(
+        this.outputNodes.output(form6251, { line2g_pab_interest: totalBox9 }),
+      );
     }
 
     if (totalBox6 > 0) {
-      const threshold = filing_status === "mfj"
-        ? FOREIGN_TAX_MFJ_THRESHOLD
-        : FOREIGN_TAX_SINGLE_THRESHOLD;
-      if (totalBox6 > threshold) {
-        // Form 1116 Part I line 1a — gross income from the payer that withheld.
-        // Box 3 (US obligations) is US source by definition, so only box 1 counts.
-        const foreignSourceInterest = int1099s
-          .filter((item) => (item.box6 ?? 0) > 0)
-          .reduce((sum, item) => sum + (item.box1 ?? 0), 0);
-        outputs.push(this.outputNodes.output(form_1116, {
-          foreign_tax_items: [{
-            foreign_tax_paid: totalBox6,
-            foreign_gross_income: foreignSourceInterest,
-            income_category: IncomeCategory.Passive,
-          }],
-        }));
-      } else {
-        outputs.push(this.outputNodes.output(schedule3, { line1_foreign_tax_1099: totalBox6 }));
+      const taxedItems = int1099s.filter((item) => (item.box6 ?? 0) > 0);
+      for (const item of taxedItems) {
+        if (
+          item.foreign_source_interest_usd === undefined ||
+          item.foreign_source_interest_usd <= 0 ||
+          item.foreign_source_interest_usd > (item.box1 ?? 0) ||
+          !item.foreign_tax_irs_country_code
+        ) {
+          throw new Error(
+            "1099-INT foreign tax needs verified foreign-source interest and an IRS country code",
+          );
+        }
       }
+      outputs.push(this.outputNodes.output(form_1116, {
+        foreign_tax_items: taxedItems.map((item) => ({
+          foreign_tax_paid: item.box6!,
+          foreign_gross_income: item.foreign_source_interest_usd!,
+          income_category: IncomeCategory.Passive,
+          irs_country_code: item.foreign_tax_irs_country_code,
+          foreign_income_source_document_reference:
+            item.foreign_tax_source_document_reference,
+          tax_kind: ForeignTaxKind.Interest,
+          tax_credit_method: ForeignTaxCreditMethod.Paid,
+          tax_reported_on_1099: true,
+        })),
+      }));
     }
 
     return { outputs };

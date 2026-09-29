@@ -1,7 +1,8 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertThrows } from "@std/assert";
 import { schedule2 } from "./index.ts";
 import { fieldsOf } from "../../../../../../core/test-utils/output.ts";
 import { f1040 } from "../../../outputs/f1040/index.ts";
+import { form8978_reporting_year } from "../../worksheets/form8978_reporting_year/index.ts";
 
 function compute(input: Record<string, unknown>) {
   return schedule2.compute({ taxYear: 2025, formType: "f1040" }, input);
@@ -28,6 +29,21 @@ Deno.test("validation: all-zero fields produce no output", () => {
     line17h_nqdc_tax: 0,
   });
   assertEquals(result.outputs.length, 0);
+});
+
+Deno.test("dealer-transfer repayments accumulate on Schedule 2 lines 1b and 1c", () => {
+  const result = compute({
+    line1b_new_clean_vehicle_repayment: [7_500, 7_500],
+    line1c_prev_owned_clean_vehicle_repayment: 4_000,
+  });
+  assertEquals(
+    fieldsOf(result.outputs, f1040)!.line17_additional_taxes,
+    19_000,
+  );
+  assertEquals(findOutput(result, "schedule2")?.fields, {
+    line1b_new_clean_vehicle_repayment: 15_000,
+    line1c_prev_owned_clean_vehicle_repayment: 4_000,
+  });
 });
 
 // ── Per-field calculation ────────────────────────────────────────────────────
@@ -60,6 +76,16 @@ Deno.test("calc: line17k_golden_parachute_excise alone routes to f1040 line23", 
 Deno.test("calc: line17h_nqdc_tax alone routes to f1040 line23", () => {
   const result = compute({ line17h_nqdc_tax: 10000 });
   assertEquals(fieldsOf(result.outputs, f1040)!.line23_other_taxes, 10000);
+});
+
+Deno.test("Form 8889 testing-period tax contributes to line 23 and chapter 1 offset classification", () => {
+  const result = compute({ line17d_hsa_eligibility_tax: 50 });
+  assertEquals(fieldsOf(result.outputs, f1040)?.line23_other_taxes, 50);
+  assertEquals(
+    fieldsOf(result.outputs, form8978_reporting_year)
+      ?.schedule2_chapter1_part2_tax,
+    50,
+  );
 });
 
 // ── Line aggregation ─────────────────────────────────────────────────────────
@@ -108,10 +134,10 @@ Deno.test("routing: no output to f1040 when total is zero", () => {
   assertEquals(result.outputs.length, 0);
 });
 
-Deno.test("routing: output key is exactly line23_other_taxes", () => {
+Deno.test("routing: Part II tax also supplies the credit-limit classification", () => {
   const result = compute({ uncollected_fica: 100 });
   const keys = Object.keys(fieldsOf(result.outputs, f1040)!);
-  assertEquals(keys, ["line23_other_taxes"]);
+  assertEquals(keys, ["line23_other_taxes", "credit_limit_schedule2_line1z"]);
 });
 
 // ── Edge cases ───────────────────────────────────────────────────────────────
@@ -170,8 +196,8 @@ Deno.test("smoke: all input fields populated — correct total emitted to f1040"
     line17h_nqdc_tax: 2000,
   });
   assertEquals(fieldsOf(result.outputs, f1040)!.line23_other_taxes, 8100);
-  // Only one output
-  assertEquals(result.outputs.length, 1);
+  // Return tax and classification worksheet each receive one output.
+  assertEquals(result.outputs.length, 2);
 });
 
 // ── Previously untested major fields ─────────────────────────────────────────
@@ -186,38 +212,31 @@ Deno.test("calc: line5_unreported_tip_tax alone routes to f1040 line23", () => {
   assertEquals(fieldsOf(result.outputs, f1040)!.line23_other_taxes, 765);
 });
 
-Deno.test("calc: line2_excess_advance_premium alone routes to f1040 line17", () => {
-  const result = compute({ line2_excess_advance_premium: 1_200 });
+Deno.test("calc: line1a_excess_advance_premium alone routes to f1040 line17", () => {
+  const result = compute({ line1a_excess_advance_premium: 1_200 });
   assertEquals(fieldsOf(result.outputs, f1040)!.line17_additional_taxes, 1_200);
 });
 
-Deno.test("calc: line7a_household_employment alone routes to f1040 line23", () => {
-  const result = compute({ line7a_household_employment: 2_400 });
+Deno.test("calc: line9_household_employment alone routes to f1040 line23", () => {
+  const result = compute({ line9_household_employment: 2_400 });
   assertEquals(fieldsOf(result.outputs, f1040)!.line23_other_taxes, 2_400);
 });
 
-Deno.test("calc: line17d_kiddie_tax alone routes to f1040 line23", () => {
-  const result = compute({ line17d_kiddie_tax: 500 });
-  assertEquals(fieldsOf(result.outputs, f1040)!.line23_other_taxes, 500);
+Deno.test("calc: unsourced generic 3468 recapture fails closed", () => {
+  assertThrows(
+    () => compute({ line17a_investment_credit_recapture: 3_000 }),
+    Error,
+    "requires a specific Form 4255 credit-line source",
+  );
 });
 
-Deno.test("calc: line17a_investment_credit_recapture alone routes to f1040 line23", () => {
-  const result = compute({ line17a_investment_credit_recapture: 3_000 });
-  assertEquals(fieldsOf(result.outputs, f1040)!.line23_other_taxes, 3_000);
-});
-
-Deno.test("calc: line10_homebuyer_credit_repayment alone routes to f1040 line23", () => {
-  const result = compute({ line10_homebuyer_credit_repayment: 500 });
-  assertEquals(fieldsOf(result.outputs, f1040)!.line23_other_taxes, 500);
-});
-
-Deno.test("calc: line10_recapture_tax alone routes to f1040 line23", () => {
-  const result = compute({ line10_recapture_tax: 1_000 });
+Deno.test("calc: line17b_mortgage_subsidy_recapture alone routes to f1040 line23", () => {
+  const result = compute({ line17b_mortgage_subsidy_recapture: 1_000 });
   assertEquals(fieldsOf(result.outputs, f1040)!.line23_other_taxes, 1_000);
 });
 
-Deno.test("calc: line10_lihtc_recapture alone routes to f1040 line23", () => {
-  const result = compute({ line10_lihtc_recapture: 750 });
+Deno.test("calc: line16_lihtc_recapture alone routes to f1040 line23", () => {
+  const result = compute({ line16_lihtc_recapture: 750 });
   assertEquals(fieldsOf(result.outputs, f1040)!.line23_other_taxes, 750);
 });
 
@@ -226,27 +245,17 @@ Deno.test("calc: line17z_other_additional_taxes alone routes to f1040 line23", (
   assertEquals(fieldsOf(result.outputs, f1040)!.line23_other_taxes, 800);
 });
 
-Deno.test("calc: line17_exit_tax alone routes to f1040 line23", () => {
-  const result = compute({ line17_exit_tax: 50_000 });
-  assertEquals(fieldsOf(result.outputs, f1040)!.line23_other_taxes, 50_000);
-});
-
-Deno.test("calc: line9_965_net_tax_liability alone routes to f1040 line23", () => {
-  const result = compute({ line9_965_net_tax_liability: 10_000 });
-  assertEquals(fieldsOf(result.outputs, f1040)!.line23_other_taxes, 10_000);
-});
-
-Deno.test("calc: lump_sum_tax alone routes to f1040 line23", () => {
-  const result = compute({ lump_sum_tax: 4_000 });
-  assertEquals(fieldsOf(result.outputs, f1040)!.line23_other_taxes, 4_000);
+Deno.test("calc: line20 section 965 installment does not enter Form 1040 line 23", () => {
+  const result = compute({ line20_965_tax_installment: 10_000 });
+  assertEquals(fieldsOf(result.outputs, f1040), undefined);
 });
 
 Deno.test("routing: mixed Part I and Part II taxes stay separated", () => {
   // SE tax + AMT + household employment
   const result = compute({
     line4_se_tax: 14_130,
-    line1_amt: 5_000,
-    line7a_household_employment: 2_400,
+    line2_amt: 5_000,
+    line9_household_employment: 2_400,
   });
   const fields = fieldsOf(result.outputs, f1040)!;
   assertEquals(fields.line17_additional_taxes, 5_000);
@@ -255,17 +264,16 @@ Deno.test("routing: mixed Part I and Part II taxes stay separated", () => {
 
 Deno.test("agg: all fields populated — grand total is correct sum", () => {
   const result = compute({
-    line1_amt: 1_000,
-    line2_excess_advance_premium: 200,
+    line2_amt: 1_000,
+    line1a_excess_advance_premium: 200,
     line4_se_tax: 300,
     line5_unreported_tip_tax: 400,
     line6_uncollected_8919: 500,
-    line7a_household_employment: 600,
+    line9_household_employment: 600,
     line8_form5329_tax: 700,
-    line9_965_net_tax_liability: 800,
-    line10_homebuyer_credit_repayment: 900,
-    line10_recapture_tax: 1_000,
-    line10_lihtc_recapture: 1_100,
+    line20_965_tax_installment: 800,
+    line17b_mortgage_subsidy_recapture: 1_000,
+    line16_lihtc_recapture: 1_100,
     line11_additional_medicare: 1_200,
     line12_niit: 1_300,
     uncollected_fica: 1_400,
@@ -276,22 +284,18 @@ Deno.test("agg: all fields populated — grand total is correct sum", () => {
     line17k_golden_parachute_excise: 1_900,
     line17e_archer_msa_tax: 2_000,
     line17f_medicare_advantage_msa_tax: 2_100,
-    lump_sum_tax: 2_200,
-    line17b_hsa_penalty: 2_300,
-    line17d_kiddie_tax: 2_400,
-    line17a_investment_credit_recapture: 2_500,
+    line17c_hsa_penalty: 2_300,
     line17z_other_additional_taxes: 2_600,
-    line17_exit_tax: 2_700,
   });
   const fields = fieldsOf(result.outputs, f1040)!;
   assertEquals(fields.line17_additional_taxes, 1_200);
-  assertEquals(fields.line23_other_taxes, 37_500);
+  assertEquals(fields.line23_other_taxes, 26_000);
 });
 
 // ── Previously untested fields ───────────────────────────────────────────────
 
-Deno.test("calc: line1_amt alone routes to f1040 line17", () => {
-  const result = compute({ line1_amt: 5_000 });
+Deno.test("calc: line2_amt alone routes to f1040 line17", () => {
+  const result = compute({ line2_amt: 5_000 });
   assertEquals(fieldsOf(result.outputs, f1040)!.line17_additional_taxes, 5_000);
 });
 
@@ -315,8 +319,8 @@ Deno.test("calc: line6_uncollected_8919 alone routes to f1040 line23", () => {
   assertEquals(fieldsOf(result.outputs, f1040)!.line23_other_taxes, 600);
 });
 
-Deno.test("calc: line17b_hsa_penalty alone routes to f1040 line23", () => {
-  const result = compute({ line17b_hsa_penalty: 700 });
+Deno.test("calc: line17c_hsa_penalty alone routes to f1040 line23", () => {
+  const result = compute({ line17c_hsa_penalty: 700 });
   assertEquals(fieldsOf(result.outputs, f1040)!.line23_other_taxes, 700);
 });
 
@@ -330,14 +334,44 @@ Deno.test("calc: line12_niit alone routes to f1040 line23", () => {
   assertEquals(fieldsOf(result.outputs, f1040)!.line23_other_taxes, 900);
 });
 
+Deno.test("Schedule 2 keeps Chapter 1, non-Chapter-1, and unclassified tax distinct", () => {
+  const result = compute({
+    line8_form5329_tax: 100,
+    line8_form5329_chapter1_tax: 40,
+    line4_se_tax: 200,
+    line17z_other_additional_taxes: 30,
+  });
+  const classified = fieldsOf(result.outputs, form8978_reporting_year)!;
+  assertEquals(classified.schedule2_part2_tax, 330);
+  assertEquals(classified.schedule2_chapter1_part2_tax, 40);
+  assertEquals(classified.schedule2_unclassified_part2_tax, 30);
+});
+
+Deno.test("Schedule 2 classifies section 409A tax but not section 4999 excise, FICA, NIIT, or section 965 installments", () => {
+  const result = compute({
+    section409a_excise: 200,
+    line17h_nqdc_tax: 300,
+    golden_parachute_excise: 400,
+    line17k_golden_parachute_excise: 100,
+    line4_se_tax: 600,
+    line12_niit: 700,
+    line20_965_tax_installment: 800,
+  });
+  const classified = fieldsOf(result.outputs, form8978_reporting_year)!;
+  assertEquals(classified.schedule2_part2_tax, 2_300);
+  assertEquals(classified.schedule2_chapter1_part2_tax, 500);
+  assertEquals(classified.schedule2_unclassified_part2_tax, 0);
+  assertEquals(fieldsOf(result.outputs, f1040)?.line23_other_taxes, 2_300);
+});
+
 Deno.test("routing: Part I AMT stays separate from eight Part II tax fields", () => {
   const result = compute({
-    line1_amt: 5_000,
+    line2_amt: 5_000,
     line8_form5329_tax: 300,
     line17e_archer_msa_tax: 400,
     line17f_medicare_advantage_msa_tax: 500,
     line6_uncollected_8919: 600,
-    line17b_hsa_penalty: 700,
+    line17c_hsa_penalty: 700,
     line11_additional_medicare: 800,
     line12_niit: 900,
   });

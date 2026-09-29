@@ -1,42 +1,57 @@
+import type { Form8990Lines } from "../../../nodes/intermediate/forms/form8990/index.ts";
+import { reconcileForm8990Projection } from "../../form8990_projection.ts";
 import { element, elements } from "../../../mef/xml.ts";
 import type { MefFormDescriptor } from "../form-descriptor.ts";
 
-export interface Fields {
-  business_interest_expense?: number | null;
-  prior_disallowed_carryforward?: number | null;
-  floor_plan_interest?: number | null;
-  tentative_taxable_income?: number | null;
-  depreciation_amortization?: number | null;
-  business_interest_income?: number | null;
-  avg_gross_receipts?: number | null;
-}
+type Input = Partial<Form8990Lines> & Record<string, unknown>;
 
-type Input = Partial<Fields> & Record<string, unknown>;
+// Direct Schedule C, zero reviewed prior carryforward, no floor-plan/pass-through. Native TY2025
+// v5.4 IRS8990.xsd sequence, omitting all inapplicable CFC and excess-item groups.
+export const FIELD_MAP: ReadonlyArray<readonly [keyof Form8990Lines, string]> =
+  [
+    ["line1", "CYBusIntExpnsBfr163jLmtAmt"],
+    ["line2", "CfwdPrevDsallwIntExpenseAmt"],
+    ["line4", "FlrPlanFinancingIntExpnsAmt"],
+    ["line5", "TotalAllowableBusIntExpnsAmt"],
+    ["line6", "TaxableIncomeAmt"],
+    ["line7", "LossDeductionNotAllocableAmt"],
+    ["line8", "BusInterestExpnsNotPassThruAmt"],
+    ["line9", "Sect172NOLTakenAmt"],
+    ["line10", "Sect199AQlfyBusIncomeDedAmt"],
+    ["line11", "DeprecAmortzDpltnDedTakenAmt"],
+    ["line16", "TotalAdditionsAmt"],
+    ["line18", "NotPassThruEntBusIntIncomeAmt"],
+    ["line21", "TotalReductionsAmt"],
+    ["line22", "AdjustedTaxableIncomeAmt"],
+    ["line23", "CYBusinessInterestIncomeAmt"],
+    ["line25", "TotalBusinessInterestIncomeAmt"],
+    ["line26", "AdjTaxableIncomeApplcblPctAmt"],
+    ["line29", "TotalBusIntExpnsLimitationAmt"],
+    ["line30", "TotCYBusinessIntExpnsDedAmt"],
+    ["line31", "DisallowedBusInterestExpnsAmt"],
+  ];
 
-export const FIELD_MAP: ReadonlyArray<readonly [keyof Fields, string]> = [
-  ["business_interest_expense", "BusinessInterestExpenseAmt"],
-  ["prior_disallowed_carryforward", "PriorYearDisallowedBIEAmt"],
-  ["floor_plan_interest", "FloorPlanFinancingIntAmt"],
-  ["tentative_taxable_income", "TentativeTaxableIncomeAmt"],
-  ["depreciation_amortization", "DepreciationAmortizationAmt"],
-  ["business_interest_income", "BusinessInterestIncomeAmt"],
-  ["avg_gross_receipts", "AvgAnnualGrossReceiptsAmt"],
-];
-
-function buildIRS8990(fields: Input): string {
-  const children = FIELD_MAP.map(([key, tag]) => {
-    const value = fields[key];
-    if (typeof value !== "number") return "";
-    return element(tag, value);
-  });
-  return elements("IRS8990", children);
+function buildIRS8990(
+  fields: Input,
+  pending: Readonly<Record<string, unknown>>,
+): string {
+  if (Object.keys(fields).length === 0) return "";
+  const projected = reconcileForm8990Projection(fields, pending);
+  return elements(
+    "IRS8990",
+    FIELD_MAP.map(([key, tag]) => element(tag, projected[key])),
+  );
 }
 
 export const form8990: MefFormDescriptor<"form8990", Input> = {
   pendingKey: "form8990",
   FIELD_MAP,
-  pdfUrl: "https://www.irs.gov/pub/irs-pdf/f8990.pdf",
-  build(fields) {
-    return buildIRS8990(fields);
+  pdfUrl: "https://www.irs.gov/pub/irs-prior/f8990--2025.pdf",
+  build(fields, context) {
+    if (Object.keys(fields).length === 0) return "";
+    if (!context?.pending) {
+      throw new Error("Form 8990 MeF needs the finalized return graph");
+    }
+    return buildIRS8990(fields, context.pending);
   },
 };

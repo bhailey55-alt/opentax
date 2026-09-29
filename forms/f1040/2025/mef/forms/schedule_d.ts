@@ -4,12 +4,13 @@ import type { MefFormDescriptor } from "../form-descriptor.ts";
 export interface Fields {
   line_1a_proceeds?: number | null;
   line_1a_cost?: number | null;
-  line_4_other_st?: number | null;
+  line_4_other_st?: number | readonly number[] | null;
   line_5_k1_st?: number | null;
   line_6_carryover?: number | null;
   line_8a_proceeds?: number | null;
   line_8a_cost?: number | null;
-  line_11_form2439?: number | null;
+  line_11_form2439?: number | readonly number[] | null;
+  line_11_qef_lt?: number | null;
   line_12_k1_lt?: number | null;
   line13_cap_gain_distrib?: number | null;
   line_12_cap_gain_dist?: number | null;
@@ -25,6 +26,7 @@ export const FIELD_MAP: ReadonlyArray<readonly [keyof Fields, string]> = [
   ["line_5_k1_st", "NetSTGainOrLossFromSchK1Amt"],
   ["line_6_carryover", "STCapitalLossCarryoverAmt"],
   ["line_11_form2439", "LTGainOrLossFromFormsAmt"],
+  ["line_11_qef_lt", "LTGainOrLossFromFormsAmt"],
   ["line_12_k1_lt", "NetLTGainOrLossFromSchK1Amt"],
   ["line_14_carryover", "LTCapitalLossCarryoverAmt"],
   ["line19_unrecaptured_1250", "UnrcptrSect1250GainWrkshtAmt"],
@@ -69,6 +71,14 @@ function buildBasisRptNoAdjGroup(
 
 function buildIRS1040ScheduleD(fields: Input): string {
   const f = fields as Fields;
+  // The intermediate node reports a distribution-only return directly on
+  // Form 1040 line 7a. It emits print_line16_combined only when Schedule D is
+  // actually filed, so raw line-13 input alone must not create an attachment.
+  if (
+    ((f.line13_cap_gain_distrib ?? 0) > 0 ||
+      (f.line_12_cap_gain_dist ?? 0) > 0) &&
+    typeof fields["print_line16_combined"] !== "number"
+  ) return "";
   const children: string[] = [];
 
   // Nested groups first (XSD order: line 1a before line 8a)
@@ -87,10 +97,18 @@ function buildIRS1040ScheduleD(fields: Input): string {
     ),
   );
 
-  // Scalar FIELD_MAP
+  // Repeated source keys for one XSD line are summed before serialization.
+  // Map insertion order preserves the XSD's field order.
+  const mappedAmounts = new Map<string, number>();
   for (const [key, tag] of FIELD_MAP) {
     const value = f[key];
-    if (typeof value !== "number") continue;
+    const amounts = Array.isArray(value) ? value : [value];
+    for (const amount of amounts) {
+      if (typeof amount !== "number") continue;
+      mappedAmounts.set(tag, (mappedAmounts.get(tag) ?? 0) + amount);
+    }
+  }
+  for (const [tag, value] of mappedAmounts) {
     children.push(element(tag, value));
   }
 
@@ -106,11 +124,50 @@ function buildIRS1040ScheduleD(fields: Input): string {
   return elements("IRS1040ScheduleD", children);
 }
 
+function hasUnsupportedQsbsTransaction(fields: Input): boolean {
+  const rows = [
+    ...(Array.isArray(fields.transaction)
+      ? fields.transaction
+      : fields.transaction
+      ? [fields.transaction]
+      : []),
+    ...(Array.isArray(fields.transactions) ? fields.transactions : []),
+  ];
+  return rows.some((row) =>
+    typeof row === "object" && row !== null &&
+    (("qsbs_code" in row && row.qsbs_code !== undefined) ||
+      ("qsbs_amount" in row && row.qsbs_amount !== undefined) ||
+      ("adjustment_codes" in row &&
+        typeof row.adjustment_codes === "string" &&
+        row.adjustment_codes.includes("Q")))
+  );
+}
+
 export const scheduleD: MefFormDescriptor<"schedule_d", Input> = {
   pendingKey: "schedule_d",
   FIELD_MAP,
   pdfUrl: "https://www.irs.gov/pub/irs-pdf/f1040sd.pdf",
-  build(fields) {
+  build(fields, context) {
+    if (
+      (typeof fields.box2c_qsbs === "number" && fields.box2c_qsbs > 0) ||
+      hasUnsupportedQsbsTransaction(fields)
+    ) {
+      throw new Error(
+        "Schedule D section 1202 source needs a sourced Form 8949 exclusion and Form 6251 line 2h preference before filing",
+      );
+    }
+    if (
+      fields.pending_active_4797 === true &&
+      !(context?.pending?.agi_final &&
+        typeof context.pending.agi_final === "object" &&
+        "capital_finalized" in context.pending.agi_final &&
+        context.pending.agi_final.capital_finalized === true)
+    ) {
+      throw new Error(
+        "Schedule D active-rental Form 4797 sale needs finalized PAL allocation",
+      );
+    }
+    if (fields.active_4797_final_no_schedule_d === true) return "";
     return buildIRS1040ScheduleD(fields);
   },
 };

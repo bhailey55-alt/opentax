@@ -1,125 +1,33 @@
-# Form 8814 — Parents' Election To Report Child's Interest and Dividends
+# TY2025 Form 8814
 
-## Overview
-Allows a parent to include a qualifying child's investment income on the parent's return (rather than filing a separate return for the child). One `f8814s` item per qualifying child. The included income flows to the parent's Form 1040 lines 2b (interest) and 3b (dividends). A small flat tax ($135 for TY2025) applies to the second-tier of income but is not yet routed in the current implementation.
+The parent election reports a qualifying child's interest and dividends on the parent's Form 1040. The election needs a separate Form 8814 for each child. Income eligibility and family facts are required explicitly; missing facts do not authorize the election.
 
-**IRS Form:** 8814
-**Drake Screen:** 8814
-**Node Type:** input
-**Tax Year:** 2025
-**Drake Reference:** https://kb.drakesoftware.com/Site/Browse/14005
+Source: [2025 Form 8814](https://www.irs.gov/pub/irs-prior/f8814--2025.pdf) and [2025 instructions](https://www.irs.gov/instructions/i8814).
+Parent print destinations were checked against the [2025 Form 1040](https://www.irs.gov/pub/irs-prior/f1040--2025.pdf), [Schedule D](https://www.irs.gov/pub/irs-prior/f1040sd--2025.pdf), and [Schedule B](https://www.irs.gov/pub/irs-prior/f1040sb--2025.pdf) source PDFs.
 
----
+| Form line | Calculation | Destination |
+| --- | --- | --- |
+| 2a | ordinary dividends + Alaska PFD | child's Form 8814 |
+| 4 | taxable interest + line 2a + capital gain distributions | election requires line 4 under $13,500 |
+| 6 | max(0, line 4 - $2,700) | allocated to parent |
+| 9 | line 6 × qualified dividends / line 4 | parent Form 1040 lines 3a and 3b |
+| 10 | line 6 × capital gain distributions / line 4 | Schedule D line 13 or direct Form 1040 line 7a |
+| 12 | line 6 - lines 9 and 10 | Schedule 1 line 8z, labeled Form 8814 |
+| 14 | max(0, line 4 - $1,350) | child tax basis |
+| 15 | 10% of lesser(line 14, $1,350) | included on parent Form 1040 line 16, box 1 |
 
-## Input Fields
+Form 8962 Worksheet 1-2 has a special household-income amount when a dependent child is covered by Form 8814 and line 4 exceeds $1,350. For each such child it adds tax-exempt interest, lesser(line 4, $2,700), and nontaxable Social Security. The child's SSN must match a dependent whose `ptc_tax_return.filing` is `form8814`; this prevents adding the same child twice or counting a nondependent child's election as dependent MAGI.
 
-| Field | Type | Required | Source / Label | Description | IRS Reference | URL |
-| ----- | ---- | -------- | -------------- | ----------- | ------------- | --- |
-| f8814s | ItemSchema[] | Yes | Children | Array of per-child income records; one entry per qualifying child | Form 8814 instructions | https://www.irs.gov/pub/irs-pdf/i8814.pdf |
-| child_name | string | No | Child's name | Name of the qualifying child | Form 8814 Part I | https://www.irs.gov/pub/irs-pdf/i8814.pdf |
-| child_ssn | string | No | Child's SSN | SSN of the qualifying child | Form 8814 Part I | https://www.irs.gov/pub/irs-pdf/i8814.pdf |
-| interest_income | number (≥0) | No | Interest income | Child's taxable interest income (1099-INT boxes 1+3) | Form 8814 Line 1a | https://www.irs.gov/pub/irs-pdf/i8814.pdf |
-| dividend_income | number (≥0) | No | Dividend income | Child's ordinary dividends (1099-DIV box 1a) | Form 8814 Line 2a | https://www.irs.gov/pub/irs-pdf/i8814.pdf |
-| capital_gain_distributions | number (≥0) | No | Capital gain distributions | Child's capital gain distributions (1099-DIV box 2a) | Form 8814 Line 3 | https://www.irs.gov/pub/irs-pdf/i8814.pdf |
-| alaska_pfd | number (≥0) | No | Alaska PFD | Alaska Permanent Fund Dividend | Form 8814 Line 2b note | https://www.irs.gov/pub/irs-pdf/i8814.pdf |
+`interest_income` is the net Form 8814 line 1a amount. Any nominee distributions or accrued-interest, ABP, and OID adjustments are already excluded from that amount. The 2025 IRS `ChildTaxableInterestStatement.xsd` requires those adjustments in a separate `ChildTaxableInterestStmt`, linked from line 1a of the matching child's Form 8814. It does not define an over-15-payer statement.
 
----
+`dividend_income` and `capital_gain_distributions` are likewise net of their nominee distributions. MeF carries those excluded amounts as `nomineeDistributionCd` and `nomineeDistributionAmt` attributes on lines 2a and 3.
 
-## Calculation Logic
+The private-activity-bond portion of the child's line 1b tax-exempt interest is included in `tax_exempt_interest` and separately routed to the parent's Form 6251 line 2g, per the 2025 Form 8814 instructions' AMT note. It cannot exceed the child's total tax-exempt interest.
 
-### Step 1 — Total child income
-`total = interest_income + dividend_income + capital_gain_distributions + alaska_pfd`
-Source: Form 8814 Line 6 — https://www.irs.gov/pub/irs-pdf/i8814.pdf
+If the elected child had a foreign financial account or foreign-trust activity, the parent must file Schedule B Part III and enter `Form 8814` beside the matching question. These child facts force Yes for lines 7a or 8, but they do not determine whether FinCEN Form 114 is required. The parent must explicitly answer that question and list countries when required.
 
-### Step 2 — Below threshold check
-If `total ≤ $1,350` (TY2025), no output is produced for this child (all income is tax-free).
-Note: **current code uses $1,300 (TY2024 value)** — TY2025 is $1,350 per Rev Proc 2024-40 §3.
-Source: IRC §1(g)(4)(A)(ii); Form 8814 Line 7 — https://www.irs.gov/pub/irs-pdf/i8814.pdf
+The 2025 Form 1040 has dedicated line 3c checkboxes for child income included on lines 3a and 3b, and a line 7b checkbox for child capital gain or loss. The PDF checks these only when Form 8814 line 9 or 10 actually contributes income. It checks the separate "Schedule D not required" box when the return's capital gain distributions are reported directly on line 7a. When a child line 10 amount goes directly to line 7a, the PDF writes `Form 8814 $[amount]` in that line's dotted space; if Schedule D is filed, the annotation goes beside Schedule D line 13 instead. The 2025 Form 1040 line 16 Form 8814 tax box and the child-specific Form 8814 pages are also mapped. Schedule B prints `Form 8814` beside line 7a and/or line 8 only when the child's corresponding fact is true.
 
-### Step 3 — Included income
-`included = max(0, total − $1,350)`
-The first $1,350 of the child's unearned income is excluded from the parent's return.
-Source: Form 8814 Line 12 instructions — https://www.irs.gov/pub/irs-pdf/i8814.pdf
+The Form 8814 PDF prints line 1a nominee/accrued/ABP/OID adjustment notes, line 2a and line 3 nominee notes, and a child-specific continuation when line 1a's dotted space cannot hold every amount. For Part I, it leaves lines 7 through 10 blank when both qualified dividends and capital gain distributions are zero, but prints an explicit zero ratio and zero allocation on the other branch when just one is zero, as the form directs. The source PDF field rectangles and dotted-space positions were inspected before adding these overlays. Output rendering has not yet been run.
 
-### Step 4 — Route interest and dividend portions
-- Interest: routed to `f1040.line2b_taxable_interest` if `total > $1,350`
-- Dividends: routed to `f1040.line3b_ordinary_dividends` if `total > $1,350`
-Source: Form 8814 Lines 12–15 — https://www.irs.gov/pub/irs-pdf/i8814.pdf
-
-### Step 5 — Second-tier flat tax (implementation gap)
-If `total > $1,350`: flat additional tax of $135 applies (10% × $1,350).
-This tax is **computed but not currently routed** — should go to Schedule 2 line 17d (other taxes).
-Source: IRC §1(g)(1); Form 8814 Line 15 — https://www.irs.gov/pub/irs-pdf/i8814.pdf
-
----
-
-## Output Routing
-
-| Output Field | Destination Node | Condition | IRS Reference | URL |
-| ------------ | ---------------- | --------- | ------------- | --- |
-| line2b_taxable_interest | f1040 | total > $1,350 AND interest_income > 0 | Form 8814 Line 12; F1040 Line 2b | https://www.irs.gov/pub/irs-pdf/f1040.pdf |
-| line3b_ordinary_dividends | f1040 | total > $1,350 AND dividend_income > 0 | Form 8814 Line 13; F1040 Line 3b | https://www.irs.gov/pub/irs-pdf/f1040.pdf |
-| line17d_other_taxes (gap) | schedule2 | total > $1,350 | Form 8814 Line 15 → Sch 2 Line 17d | https://www.irs.gov/pub/irs-pdf/f1040s2.pdf |
-| line7_capital_gain (gap) | f1040 | capital_gain_distributions > 0 | Form 8814 Line 10; F1040 Line 7 | https://www.irs.gov/pub/irs-pdf/f1040.pdf |
-
----
-
-## Constants & Thresholds (Tax Year 2025)
-
-| Constant | Value | Source | URL |
-| -------- | ----- | ------ | --- |
-| First-tier exclusion (base amount) | $1,350 | IRC §1(g)(4)(A)(ii); Rev Proc 2024-40 §3.16 | https://www.irs.gov/pub/irs-drop/rp-24-40.pdf |
-| Second-tier upper threshold | $2,700 | IRC §1(g)(7)(B); Rev Proc 2024-40 §3.16 | https://www.irs.gov/pub/irs-drop/rp-24-40.pdf |
-| Second-tier flat tax per child | $135 | 10% × $1,350; IRC §1(g)(1) | https://www.irs.gov/pub/irs-pdf/i8814.pdf |
-| Child gross income limit for election | $11,000 | IRC §1(g)(7)(A); Rev Proc 2024-40 | https://www.irs.gov/pub/irs-drop/rp-24-40.pdf |
-| **Code uses (TY2024 — needs update)** | $1,300 / $2,600 / $130 | Stale constants in index.ts | — |
-
----
-
-## Data Flow Diagram
-
-flowchart LR
-  subgraph inputs["Data Entry (per child)"]
-    int["interest_income"]
-    div["dividend_income"]
-    cg["capital_gain_distributions"]
-    pfd["alaska_pfd"]
-  end
-  subgraph node["f8814 (Parent Election)"]
-    tot["totalIncome()"]
-    inc["includedIncome()<br/>total − $1,350"]
-    tax["childTierTax()<br/>$135 flat"]
-  end
-  subgraph outputs["Downstream Nodes"]
-    f1040i["f1040<br/>line2b (interest)"]
-    f1040d["f1040<br/>line3b (dividends)"]
-    sch2["schedule2<br/>line17d (gap — not yet wired)"]
-  end
-  int & div & cg & pfd --> tot --> inc --> f1040i & f1040d
-  tot --> tax --> sch2
-
----
-
-## Edge Cases & Special Rules
-
-1. **TY2025 constant bug**: Code uses $1,300/$2,600/$130 (TY2024). Correct TY2025 values are $1,350/$2,700/$135 per Rev Proc 2024-40 §3.16.
-2. **Child tier tax not routed**: `childTierTax()` computes $135 per child but the result is discarded (`const _ = childTierTax(item)`). Should route to `schedule2.line17d_other_taxes`.
-3. **Capital gain distributions not routed**: `capital_gain_distributions` is captured in schema but not emitted to `f1040.line7`. These should flow to Schedule D / F1040 line 7.
-4. **Gross income limit**: If child's gross income (not just unearned) ≥ $11,000 (TY2025), the parent election is not allowed. Node does not enforce this — preparer responsibility.
-5. **All-or-nothing election**: Once elected for a child, ALL of the child's unearned income must be reported on the parent's return (cannot cherry-pick).
-6. **Multiple children**: Node accepts an array — one `f8814s` item per qualifying child. Outputs accumulate across all children.
-7. **Child earned income**: The election only covers unearned income. Earned income (wages) is never included here.
-8. **Alaska PFD**: Treated as dividend income for purposes of this form.
-9. **MFS filers**: Married Filing Separately filers cannot use this election if they lived with their spouse at any time during the year.
-10. **Kiddie tax interaction**: If the child's income exceeds $2,700 (TY2025), the excess is taxed at the parent's rate — this is handled separately by Form 8615 (Kiddie Tax), not Form 8814.
-
----
-
-## Sources
-
-| Document | Year | Section | URL | Saved as |
-| -------- | ---- | ------- | --- | -------- |
-| Form 8814 Instructions | 2024 | All | https://www.irs.gov/pub/irs-pdf/i8814.pdf | .research/docs/i8814.pdf |
-| IRC §1(g) — Kiddie Tax / Parent Election | current | §1(g)(1),(4),(7) | https://www.law.cornell.edu/uscode/text/26/1 | N/A |
-| Rev Proc 2024-40 (TY2025 inflation adjustments) | 2024 | §3.16 | https://www.irs.gov/pub/irs-drop/rp-24-40.pdf | .research/docs/rp-24-40.pdf |
-| IRS Pub 929 — Tax Rules for Children and Dependents | 2024 | Chapter 2 | https://www.irs.gov/pub/irs-pdf/p929.pdf | .research/docs/p929.pdf |
+Build status: the calculation, return routing, MeF serializer, 2025 PDF descriptor and parent-return print annotations, Form 8960 line 7 NIIT route, combined-source Schedule B dividend reporting, and linked interest-adjustment statements have been added, but not yet verified in the user-requested full-batch test. PDF visual layout, broader IRS business rules, and ATS acceptance are still open. Do not mark this form production-ready based on this document.

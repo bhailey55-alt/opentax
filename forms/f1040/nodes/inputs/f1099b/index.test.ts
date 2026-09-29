@@ -19,7 +19,10 @@ function minimalItem(overrides: Record<string, unknown> = {}) {
 }
 
 function compute(items: ReturnType<typeof minimalItem>[]) {
-  return f1099b.compute({ taxYear: 2025, formType: "f1040" }, inputSchema.parse({ f1099bs: items }));
+  return f1099b.compute(
+    { taxYear: 2025, formType: "f1040" },
+    inputSchema.parse({ f1099bs: items }),
+  );
 }
 
 function findOutput(result: ReturnType<typeof compute>, nodeType: string) {
@@ -30,9 +33,24 @@ function findAllOutputs(result: ReturnType<typeof compute>, nodeType: string) {
   return result.outputs.filter((o) => o.nodeType === nodeType);
 }
 
-type TxFields = { part: string; description: string; date_acquired: string; date_sold: string; proceeds: number; cost_basis: number; adjustment_codes?: string; adjustment_amount?: number; gain_loss: number; is_long_term: boolean };
+type TxFields = {
+  part: string;
+  description: string;
+  date_acquired: string;
+  date_sold: string;
+  proceeds: number;
+  cost_basis: number;
+  adjustment_codes?: string;
+  adjustment_amount?: number;
+  gain_loss: number;
+  is_long_term: boolean;
+  collectibles?: boolean;
+};
 
-function getTx(result: ReturnType<typeof compute>, outputIndex = 0): TxFields | undefined {
+function getTx(
+  result: ReturnType<typeof compute>,
+  outputIndex = 0,
+): TxFields | undefined {
   const outs = findAllOutputs(result, "form8949");
   if (!outs[outputIndex]) return undefined;
   const tx = (outs[outputIndex].fields as Record<string, unknown>).transaction;
@@ -43,37 +61,112 @@ function getTx(result: ReturnType<typeof compute>, outputIndex = 0): TxFields | 
 // ─── 1. Input schema validation ────────────────────────────────────────────
 
 Deno.test("schema: empty b99s array is rejected", () => {
-  assertThrows(() => f1099b.compute({ taxYear: 2025, formType: "f1040" }, { f1099bs: [] }), Error);
+  assertThrows(
+    () => f1099b.compute({ taxYear: 2025, formType: "f1040" }, { f1099bs: [] }),
+    Error,
+  );
 });
 
 Deno.test("schema: missing part field is rejected", () => {
-  const item = { description: "100 sh XYZ", date_acquired: "01012024", date_sold: "06012024", proceeds: 1000, cost_basis: 800 };
-  assertThrows(() => f1099b.compute({ taxYear: 2025, formType: "f1040" }, { f1099bs: [item as never] }), Error);
+  const item = {
+    description: "100 sh XYZ",
+    date_acquired: "01012024",
+    date_sold: "06012024",
+    proceeds: 1000,
+    cost_basis: 800,
+  };
+  assertThrows(
+    () =>
+      f1099b.compute({ taxYear: 2025, formType: "f1040" }, {
+        f1099bs: [item as never],
+      }),
+    Error,
+  );
 });
 
 Deno.test("schema: missing description is rejected", () => {
-  const item = { part: "A", date_acquired: "01012024", date_sold: "06012024", proceeds: 1000, cost_basis: 800 };
-  assertThrows(() => f1099b.compute({ taxYear: 2025, formType: "f1040" }, { f1099bs: [item as never] }), Error);
+  const item = {
+    part: "A",
+    date_acquired: "01012024",
+    date_sold: "06012024",
+    proceeds: 1000,
+    cost_basis: 800,
+  };
+  assertThrows(
+    () =>
+      f1099b.compute({ taxYear: 2025, formType: "f1040" }, {
+        f1099bs: [item as never],
+      }),
+    Error,
+  );
 });
 
 Deno.test("schema: missing date_acquired is rejected", () => {
-  const item = { part: "A", description: "100 sh XYZ", date_sold: "06012024", proceeds: 1000, cost_basis: 800 };
-  assertThrows(() => f1099b.compute({ taxYear: 2025, formType: "f1040" }, { f1099bs: [item as never] }), Error);
+  const item = {
+    part: "A",
+    description: "100 sh XYZ",
+    date_sold: "06012024",
+    proceeds: 1000,
+    cost_basis: 800,
+  };
+  assertThrows(
+    () =>
+      f1099b.compute({ taxYear: 2025, formType: "f1040" }, {
+        f1099bs: [item as never],
+      }),
+    Error,
+  );
 });
 
 Deno.test("schema: missing date_sold is rejected", () => {
-  const item = { part: "A", description: "100 sh XYZ", date_acquired: "01012024", proceeds: 1000, cost_basis: 800 };
-  assertThrows(() => f1099b.compute({ taxYear: 2025, formType: "f1040" }, { f1099bs: [item as never] }), Error);
+  const item = {
+    part: "A",
+    description: "100 sh XYZ",
+    date_acquired: "01012024",
+    proceeds: 1000,
+    cost_basis: 800,
+  };
+  assertThrows(
+    () =>
+      f1099b.compute({ taxYear: 2025, formType: "f1040" }, {
+        f1099bs: [item as never],
+      }),
+    Error,
+  );
 });
 
 Deno.test("schema: missing proceeds is rejected", () => {
-  const item = { part: "A", description: "100 sh XYZ", date_acquired: "01012024", date_sold: "06012024", cost_basis: 800 };
-  assertThrows(() => f1099b.compute({ taxYear: 2025, formType: "f1040" }, { f1099bs: [item as never] }), Error);
+  const item = {
+    part: "A",
+    description: "100 sh XYZ",
+    date_acquired: "01012024",
+    date_sold: "06012024",
+    cost_basis: 800,
+  };
+  assertThrows(
+    () =>
+      f1099b.compute({ taxYear: 2025, formType: "f1040" }, {
+        f1099bs: [item as never],
+      }),
+    Error,
+  );
 });
 
 Deno.test("schema: missing cost_basis is rejected", () => {
-  const item = { part: "A", description: "100 sh XYZ", date_acquired: "01012024", date_sold: "06012024", proceeds: 1000 };
-  assertThrows(() => f1099b.compute({ taxYear: 2025, formType: "f1040" }, { f1099bs: [item as never] }), Error);
+  const item = {
+    part: "A",
+    description: "100 sh XYZ",
+    date_acquired: "01012024",
+    date_sold: "06012024",
+    proceeds: 1000,
+  };
+  assertThrows(
+    () =>
+      f1099b.compute({ taxYear: 2025, formType: "f1040" }, {
+        f1099bs: [item as never],
+      }),
+    Error,
+  );
 });
 
 Deno.test("schema: negative proceeds is rejected", () => {
@@ -227,14 +320,18 @@ Deno.test("gain_loss: col h = col d − col e + col g (positive adjustment reduc
   // Wash sale: proceeds=10000, basis=8000, wash sale disallowed=1000 (positive adj)
   // col h = 10000 - 12000 + 1000 = -1000 → but let's use: proceeds=8000, basis=10000, adj=+1000
   // col h = 8000 - 10000 + 1000 = -1000
-  const result = compute([minimalItem({ proceeds: 8000, cost_basis: 10000, adjustment_amount: 1000 })]);
+  const result = compute([
+    minimalItem({ proceeds: 8000, cost_basis: 10000, adjustment_amount: 1000 }),
+  ]);
   assertEquals(getTx(result)!.gain_loss, -1000);
 });
 
 Deno.test("gain_loss: col h = col d − col e + col g (negative adjustment reduces gain)", () => {
   // Selling expenses code E: proceeds=10000, basis=8000, adj=-500
   // col h = 10000 - 8000 + (-500) = 1500
-  const result = compute([minimalItem({ proceeds: 10000, cost_basis: 8000, adjustment_amount: -500 })]);
+  const result = compute([
+    minimalItem({ proceeds: 10000, cost_basis: 8000, adjustment_amount: -500 }),
+  ]);
   assertEquals(getTx(result)!.gain_loss, 1500);
 });
 
@@ -248,6 +345,84 @@ Deno.test("gain_loss: proceeds = 0 (worthless security) yields negative gain_los
 Deno.test("gain_loss: gain_loss = 0 when proceeds equal cost_basis", () => {
   const result = compute([minimalItem({ proceeds: 5000, cost_basis: 5000 })]);
   assertEquals(getTx(result)!.gain_loss, 0);
+});
+
+Deno.test("1099-B market discount reduces Form 8949 gain and reaches Schedule B once", () => {
+  const result = compute([minimalItem({
+    proceeds: 1_000,
+    cost_basis: 800,
+    box1f_accrued_market_discount: 300,
+    market_discount_payer_name: "Test Brokerage",
+  })]);
+  assertEquals(getTx(result)?.adjustment_codes, "D");
+  assertEquals(getTx(result)?.adjustment_amount, -200);
+  assertEquals(getTx(result)?.gain_loss, 0);
+  assertEquals(
+    findOutput(result, "schedule_b")?.fields.taxable_interest_net,
+    200,
+  );
+  assertEquals(
+    findOutput(result, "schedule_b")?.fields.payer_name,
+    "Test Brokerage",
+  );
+  assertEquals(findOutput(result, "form4952"), undefined);
+});
+
+Deno.test("affirmed investment-property market discount reaches Form 4952 line 4a source", () => {
+  const result = compute([minimalItem({
+    proceeds: 1_000,
+    cost_basis: 800,
+    box1f_accrued_market_discount: 150,
+    market_discount_payer_name: "Test Brokerage",
+    investment_property_for_form4952: true,
+  })]);
+  assertEquals(getTx(result)?.adjustment_amount, -150);
+  assertEquals(getTx(result)?.gain_loss, 50);
+  assertEquals(
+    findOutput(result, "schedule_b")?.fields.taxable_interest_net,
+    150,
+  );
+  assertEquals(
+    findOutput(result, "form4952")?.fields.source_1099_interest,
+    150,
+  );
+});
+
+Deno.test("1099-B market discount on a loss creates no taxable interest or Form 4952 income", () => {
+  const result = compute([minimalItem({
+    proceeds: 700,
+    cost_basis: 800,
+    box1f_accrued_market_discount: 300,
+    market_discount_payer_name: "Test Brokerage",
+    investment_property_for_form4952: true,
+  })]);
+  assertEquals(getTx(result)?.adjustment_codes, "D");
+  assertEquals(getTx(result)?.adjustment_amount, 0);
+  assertEquals(getTx(result)?.gain_loss, -100);
+  assertEquals(findOutput(result, "schedule_b"), undefined);
+  assertEquals(findOutput(result, "form4952"), undefined);
+});
+
+Deno.test("1099-B rejects duplicate manual code D with box 1f", () => {
+  assertThrows(
+    () =>
+      compute([minimalItem({
+        box1f_accrued_market_discount: 100,
+        market_discount_payer_name: "Test Brokerage",
+        adjustment_codes: "D",
+        adjustment_amount: -100,
+      })]),
+    Error,
+    "already present",
+  );
+});
+
+Deno.test("1099-B positive market discount needs a real interest payer", () => {
+  assertThrows(
+    () => compute([minimalItem({ box1f_accrued_market_discount: 100 })]),
+    Error,
+    "needs the taxable-interest payer name",
+  );
 });
 
 // ─── 5. Hard validation rules ──────────────────────────────────────────────
@@ -326,12 +501,15 @@ Deno.test("warning: EXPIRED as date_sold is accepted (option expired — paper f
 
 Deno.test("informational: adjustment_codes field passes through to form8949 without changing output count", () => {
   const baseOutputs = compute([minimalItem()]).outputs.length;
-  const withCodeOutputs = compute([minimalItem({ adjustment_codes: "W" })]).outputs.length;
+  const withCodeOutputs =
+    compute([minimalItem({ adjustment_codes: "W" })]).outputs.length;
   assertEquals(withCodeOutputs, baseOutputs);
 });
 
 Deno.test("informational: adjustment_codes and adjustment_amount pass through to form8949 input", () => {
-  const result = compute([minimalItem({ adjustment_codes: "W", adjustment_amount: 500 })]);
+  const result = compute([
+    minimalItem({ adjustment_codes: "W", adjustment_amount: 500 }),
+  ]);
   assertEquals(getTx(result)!.adjustment_codes, "W");
   assertEquals(getTx(result)!.adjustment_amount, 500);
 });
@@ -444,6 +622,53 @@ Deno.test("edge: single item with withholding emits one form8949 and one f1040 o
   assertEquals(findAllOutputs(result, "f1040").length, 1);
 });
 
+Deno.test("1099-B box 12 records basis reporting, not a QOF investment", () => {
+  const result = compute([minimalItem({ box12_basis_reported_to_irs: true })]);
+  assertEquals(getTx(result)?.part, "A");
+  assertEquals(findAllOutputs(result, "form8997").length, 0);
+});
+
+Deno.test("1099-B box 12 conflicts with a noncovered Form 8949 category", () => {
+  assertThrows(
+    () => compute([minimalItem({ box12_basis_reported_to_irs: false })]),
+    Error,
+    "box 12 basis-reporting status conflicts",
+  );
+  assertThrows(
+    () =>
+      compute([minimalItem({
+        box12_basis_reported_to_irs: true,
+        noncovered_security: true,
+      })]),
+    Error,
+    "box 12 basis-reporting status conflicts",
+  );
+});
+
+Deno.test("1099-B box 3 collectibles and QOF dispositions are distinct", () => {
+  const collectible = compute([minimalItem({
+    part: "D",
+    box3_transaction_type: "collectibles",
+  })]);
+  assertEquals(getTx(collectible)?.collectibles, true);
+  assertThrows(
+    () => compute([minimalItem({ box3_transaction_type: "qof" })]),
+    Error,
+    "QOF disposition needs the Form 8997 annual statement",
+  );
+});
+
+Deno.test("old, misnamed 1099-B box fields are rejected", () => {
+  assertThrows(
+    () => compute([minimalItem({ box12_qof_investment: true })]),
+    Error,
+  );
+  assertThrows(
+    () => compute([minimalItem({ box3_collectibles: true })]),
+    Error,
+  );
+});
+
 // ─── 9. Smoke test ─────────────────────────────────────────────────────────
 
 Deno.test("smoke: comprehensive transaction with all major fields — all expected outputs present", () => {
@@ -480,22 +705,34 @@ Deno.test("smoke: comprehensive transaction with all major fields — all expect
 
   // Transaction 1: short-term, wash sale reduces loss
   const shortTermOut = f8949Outputs.find((o) => {
-    const tx = (o.fields as Record<string, unknown>).transaction as Record<string, unknown> | undefined;
+    const tx = (o.fields as Record<string, unknown>).transaction as
+      | Record<string, unknown>
+      | undefined;
     return tx?.part === "B";
   });
   assertEquals(shortTermOut !== undefined, true);
-  const st = ((shortTermOut!.fields as Record<string, unknown>).transaction) as Record<string, unknown>;
+  const st =
+    ((shortTermOut!.fields as Record<string, unknown>).transaction) as Record<
+      string,
+      unknown
+    >;
   assertEquals(st.is_long_term, false);
   // col h = 8000 - 10000 + 1500 = -500
   assertEquals(st.gain_loss, -500);
 
   // Transaction 2: long-term, QSBS exclusion zeroes out gain
   const longTermOut = f8949Outputs.find((o) => {
-    const tx = (o.fields as Record<string, unknown>).transaction as Record<string, unknown> | undefined;
+    const tx = (o.fields as Record<string, unknown>).transaction as
+      | Record<string, unknown>
+      | undefined;
     return tx?.part === "D";
   });
   assertEquals(longTermOut !== undefined, true);
-  const lt = ((longTermOut!.fields as Record<string, unknown>).transaction) as Record<string, unknown>;
+  const lt =
+    ((longTermOut!.fields as Record<string, unknown>).transaction) as Record<
+      string,
+      unknown
+    >;
   assertEquals(lt.is_long_term, true);
   // col h = 300000 - 50000 + (-250000) = 0
   assertEquals(lt.gain_loss, 0);
@@ -505,15 +742,3 @@ Deno.test("smoke: comprehensive transaction with all major fields — all expect
   assertEquals(f1040Outputs.length, 1);
   assertEquals(fieldsOf(result.outputs, f1040)!.line25b_withheld_1099, 240);
 });
-
-// ─── Total: 56 tests ───────────────────────────────────────────────────────
-// Coverage breakdown:
-//   1. Input schema validation:       11 tests
-//   2. Per-box routing (A-F + withheld): 10 tests
-//   3. Aggregation:                    3 tests
-//   4. Gain/loss computation:          6 tests
-//   5. Hard validation (G-L rejected): 6 tests
-//   6. Warning-only (special dates):   6 tests
-//   7. Informational fields:           8 tests
-//   8. Edge cases:                     7 tests (wash sale, QSBS, home sale, LNA, QOF, counts)
-//   9. Smoke test:                     1 test

@@ -3,6 +3,9 @@ import { buildStartNode, inputNodes } from "./start.ts";
 
 // ── Inputs ────────────────────────────────────────────────────────────────────
 import { ext } from "../nodes/inputs/ext/index.ts";
+import { form1116_review } from "../nodes/inputs/form1116_review/index.ts";
+import { form1116_carryover_review } from "../nodes/inputs/form1116_carryover_review/index.ts";
+import { form1116_prior_carryover } from "../nodes/inputs/form1116_prior_carryover/index.ts";
 import { f1098 } from "../nodes/inputs/f1098/index.ts";
 import { f1099b } from "../nodes/inputs/f1099b/index.ts";
 import { f1099c } from "../nodes/inputs/f1099c/index.ts";
@@ -30,13 +33,17 @@ import { scheduleE } from "../nodes/inputs/schedule_e/index.ts";
 import { rrb1099r } from "../nodes/inputs/rrb1099r/index.ts";
 import { ssa1099 } from "../nodes/inputs/ssa1099/index.ts";
 import { w2 } from "../nodes/inputs/w2/index.ts";
+import { ct2 } from "../nodes/inputs/ct2/index.ts";
 import { w2g } from "../nodes/inputs/w2g/index.ts";
 import { f1099patr } from "../nodes/inputs/f1099patr/index.ts";
 import { f8283 } from "../nodes/inputs/f8283/index.ts";
+import { f7217 } from "../nodes/inputs/f7217/index.ts";
 import { f9465 } from "../nodes/inputs/f9465/index.ts";
 import { f8888 } from "../nodes/inputs/f8888/index.ts";
 import { schedule_r } from "../nodes/inputs/schedule_r/index.ts";
+import { schedule_lep } from "../nodes/inputs/schedule_lep/index.ts";
 import { f2210 } from "../nodes/inputs/f2210/index.ts";
+import { f2210f } from "../nodes/inputs/f2210f/index.ts";
 import { f3903 } from "../nodes/inputs/f3903/index.ts";
 import { f5695 } from "../nodes/inputs/f5695/index.ts";
 import { f8936 } from "../nodes/inputs/f8936/index.ts";
@@ -56,6 +63,7 @@ import { f8908 } from "../nodes/inputs/f8908/index.ts";
 import { f8941 } from "../nodes/inputs/f8941/index.ts";
 import { f8834 } from "../nodes/inputs/f8834/index.ts";
 import { f8874 } from "../nodes/inputs/f8874/index.ts";
+import { f8874_recapture } from "../nodes/inputs/f8874/recapture_node.ts";
 import { f8911 } from "../nodes/inputs/f8911/index.ts";
 import { f8826 } from "../nodes/inputs/f8826/index.ts";
 import { f4136 } from "../nodes/inputs/f4136/index.ts";
@@ -66,8 +74,10 @@ import { f8332 } from "../nodes/inputs/f8332/index.ts";
 import { f8822 } from "../nodes/inputs/f8822/index.ts";
 import { f1310 } from "../nodes/inputs/f1310/index.ts";
 import { f2439 } from "../nodes/inputs/f2439/index.ts";
+import { f3921 } from "../nodes/inputs/f3921/index.ts";
 import { f8997 } from "../nodes/inputs/f8997/index.ts";
 import { schedule_j } from "../nodes/inputs/schedule_j/index.ts";
+import { schedule_j_calculation } from "../nodes/intermediate/forms/schedule_j/index.ts";
 import { f8609 } from "../nodes/inputs/f8609/index.ts";
 import { f4852 } from "../nodes/inputs/f4852/index.ts";
 import { clergy } from "../nodes/inputs/clergy/index.ts";
@@ -92,6 +102,7 @@ import { f8820 } from "../nodes/inputs/f8820/index.ts";
 import { f8896 } from "../nodes/inputs/f8896/index.ts";
 import { f8912 } from "../nodes/inputs/f8912/index.ts";
 import { f8978 } from "../nodes/inputs/f8978/index.ts";
+import { f8615 } from "../nodes/inputs/f8615/index.ts";
 import { f8611 } from "../nodes/inputs/f8611/index.ts";
 import { household_wages } from "../nodes/inputs/household_wages/index.ts";
 import { f8828 } from "../nodes/inputs/f8828/index.ts";
@@ -102,6 +113,7 @@ import { f8833 } from "../nodes/inputs/f8833/index.ts";
 import { f8840 } from "../nodes/inputs/f8840/index.ts";
 import { f8843 } from "../nodes/inputs/f8843/index.ts";
 import { f8854 } from "../nodes/inputs/f8854/index.ts";
+import { f8854Annual } from "../nodes/inputs/f8854/annual_node.ts";
 import { f5471 } from "../nodes/inputs/f5471/index.ts";
 import { f8805 } from "../nodes/inputs/f8805/index.ts";
 import { depletion } from "../nodes/inputs/depletion/index.ts";
@@ -112,6 +124,7 @@ import { f965 } from "../nodes/inputs/f965/index.ts";
 import { ppp_forgiveness } from "../nodes/inputs/ppp_forgiveness/index.ts";
 import { qbiAggregation } from "../nodes/inputs/qbi_aggregation/index.ts";
 import { f114 } from "../nodes/inputs/f114/index.ts";
+import { schedule_b_part_iii } from "../nodes/inputs/schedule_b_part_iii/index.ts";
 import { f8594 } from "../nodes/inputs/f8594/index.ts";
 import { f8903 } from "../nodes/inputs/f8903/index.ts";
 import { f14039 } from "../nodes/inputs/f14039/index.ts";
@@ -146,6 +159,7 @@ import { form8824 } from "../nodes/intermediate/forms/form8824/index.ts";
 import { form4972 } from "../nodes/intermediate/forms/form4972/index.ts";
 import { form5329 } from "../nodes/intermediate/forms/form5329/index.ts";
 import { form5695 } from "../nodes/intermediate/forms/form5695/index.ts";
+import { jointOccupancyStatementNode } from "../nodes/intermediate/forms/joint_occupancy_statement/index.ts";
 import { form6198 } from "../nodes/intermediate/forms/form6198/index.ts";
 import { form6251 } from "../nodes/intermediate/forms/form6251/index.ts";
 import { form6252 } from "../nodes/intermediate/forms/form6252/index.ts";
@@ -153,6 +167,7 @@ import { form8615 } from "../nodes/intermediate/forms/form8615/index.ts";
 import { form6781 } from "../nodes/intermediate/forms/form6781/index.ts";
 import { form8582 } from "../nodes/intermediate/forms/form8582/index.ts";
 import { form8582cr } from "../nodes/intermediate/forms/form8582cr/index.ts";
+import { disabledAccessLimit } from "../nodes/intermediate/forms/disabled_access_limit/index.ts";
 import { form8606 } from "../nodes/intermediate/forms/form8606/index.ts";
 import { form8396 } from "../nodes/intermediate/forms/form8396/index.ts";
 import { form8815 } from "../nodes/intermediate/forms/form8815/index.ts";
@@ -168,7 +183,12 @@ import { form8959 } from "../nodes/intermediate/forms/form8959/index.ts";
 import { form8960 } from "../nodes/intermediate/forms/form8960/index.ts";
 import { form8990 } from "../nodes/intermediate/forms/form8990/index.ts";
 import { form8995 } from "../nodes/intermediate/forms/form8995/index.ts";
-import { form8995a } from "../nodes/intermediate/forms/form8995a/index.ts";
+import {
+  form8995a,
+  form8995aScheduleA,
+  form8995aScheduleC,
+  form8995aScheduleD,
+} from "../nodes/intermediate/forms/form8995a/index.ts";
 import { form982 } from "../nodes/intermediate/forms/form982/index.ts";
 import { form_1116 } from "../nodes/intermediate/forms/form_1116/index.ts";
 import { form_8829 } from "../nodes/intermediate/forms/form_8829/index.ts";
@@ -178,12 +198,15 @@ import { schedule2 } from "../nodes/intermediate/aggregation/schedule2/index.ts"
 import { schedule3 } from "../nodes/intermediate/aggregation/schedule3/index.ts";
 import { schedule_b } from "../nodes/intermediate/aggregation/schedule_b/index.ts";
 import { schedule_d } from "../nodes/intermediate/aggregation/schedule_d/index.ts";
+import { schedule_d_final } from "../nodes/intermediate/aggregation/schedule_d_final/index.ts";
 import { schedule_f } from "../nodes/intermediate/forms/schedule_f/index.ts";
 import { schedule_h } from "../nodes/intermediate/forms/schedule_h/index.ts";
 import { schedule_se } from "../nodes/intermediate/forms/schedule_se/index.ts";
 import { unrecaptured_1250_worksheet } from "../nodes/intermediate/worksheets/unrecaptured_1250_worksheet/index.ts";
 import { agi_aggregator } from "../nodes/intermediate/aggregation/agi_aggregator/index.ts";
+import { agi_final } from "../nodes/intermediate/aggregation/agi_final/index.ts";
 import { income_tax_calculation } from "../nodes/intermediate/worksheets/income_tax_calculation/index.ts";
+import { form8978_reporting_year } from "../nodes/intermediate/worksheets/form8978_reporting_year/index.ts";
 import { qdcgtw } from "../nodes/intermediate/worksheets/qdcgtw/index.ts";
 import { standard_deduction } from "../nodes/intermediate/worksheets/standard_deduction/index.ts";
 import { schedule1a } from "../nodes/intermediate/forms/schedule1a/index.ts";
@@ -220,6 +243,9 @@ export const registry: NodeRegistry = {
   f8863,
   f8949: f8949InputNode,
   general,
+  form1116_review,
+  form1116_carryover_review,
+  form1116_prior_carryover,
   k1_trust,
   k1_s_corp: k1SCorpNode,
   k1_partnership: k1Partnership,
@@ -229,13 +255,17 @@ export const registry: NodeRegistry = {
   rrb1099r,
   ssa1099,
   w2,
+  ct2,
   w2g,
   f1099patr,
   f8283,
+  f7217,
   f9465,
   f8888,
   schedule_r,
+  schedule_lep,
   f2210,
+  f2210f,
   f3903,
   f5695,
   f8936,
@@ -255,6 +285,7 @@ export const registry: NodeRegistry = {
   f8941,
   f8834,
   f8874,
+  f8874_recapture,
   f8911,
   f8826,
   f4136,
@@ -265,8 +296,10 @@ export const registry: NodeRegistry = {
   f8822,
   f1310,
   f2439,
+  f3921,
   f8997,
   schedule_j,
+  schedule_j_calculation,
   f8609,
   f4852,
   sep_retirement,
@@ -287,6 +320,7 @@ export const registry: NodeRegistry = {
   f8896,
   f8912,
   f8978,
+  f8615,
   f8611,
   f8082,
   f8873,
@@ -301,6 +335,7 @@ export const registry: NodeRegistry = {
   f8840,
   f8843,
   f8854,
+  f8854Annual,
   f5471,
   f8805,
   fec,
@@ -311,6 +346,7 @@ export const registry: NodeRegistry = {
   lump_sum_ss,
   qbi_aggregation: qbiAggregation,
   f114,
+  schedule_b_part_iii,
   f8594,
   f8903,
   f14039,
@@ -345,12 +381,14 @@ export const registry: NodeRegistry = {
   form4972,
   form5329,
   form5695,
+  jointOccupancyStatementNode,
   form6198,
   form6251,
   form6252,
   form6781,
   form8615,
   form8582,
+  disabled_access_limit: disabledAccessLimit,
   form8582cr,
   form8606,
   form8396,
@@ -368,6 +406,9 @@ export const registry: NodeRegistry = {
   form8990,
   form8995,
   form8995a,
+  form8995aScheduleA,
+  form8995aScheduleC,
+  form8995aScheduleD,
   form982,
   form_1116,
   form_8829,
@@ -377,12 +418,15 @@ export const registry: NodeRegistry = {
   schedule3,
   schedule_b,
   schedule_d,
+  schedule_d_final,
   schedule_f,
   schedule_h,
   schedule_se,
   unrecaptured_1250_worksheet,
   agi_aggregator,
+  agi_final,
   income_tax_calculation,
+  form8978_reporting_year,
   qdcgtw,
   standard_deduction,
   schedule1a,

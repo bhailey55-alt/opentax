@@ -3,7 +3,11 @@ import type {
   NodeOutput,
   NodeResult,
 } from "../../../../../core/types/tax-node.ts";
-import { TaxNode, output, type AtLeastOne } from "../../../../../core/types/tax-node.ts";
+import {
+  type AtLeastOne,
+  output,
+  TaxNode,
+} from "../../../../../core/types/tax-node.ts";
 import { OutputNodes } from "../../../../../core/types/output-nodes.ts";
 import { f1040 } from "../../outputs/f1040/index.ts";
 import { schedule1 } from "../../outputs/schedule1/index.ts";
@@ -13,6 +17,8 @@ import { scheduleC as schedule_c } from "../schedule_c/index.ts";
 import { scheduleE as schedule_e } from "../schedule_e/index.ts";
 import { schedule_f } from "../../intermediate/forms/schedule_f/index.ts";
 import { form8960 } from "../../intermediate/forms/form8960/index.ts";
+import { form4952 } from "../../intermediate/forms/form4952/index.ts";
+import { form8919 } from "../../intermediate/forms/form8919/index.ts";
 import type { NodeContext } from "../../../../../core/types/node-context.ts";
 
 // ---------------------------------------------------------------------------
@@ -21,7 +27,12 @@ import type { NodeContext } from "../../../../../core/types/node-context.ts";
 
 const RENTS_ROUTING = ["schedule_e", "schedule_c"] as const;
 const ROYALTIES_ROUTING = ["schedule_e", "schedule_c"] as const;
-const OTHER_INCOME_ROUTING = ["prizes_awards", "other_income", "excluded"] as const;
+const OTHER_INCOME_ROUTING = [
+  "prizes_awards",
+  "other_income",
+  "form_8919",
+  "excluded",
+] as const;
 
 type RentsRouting = typeof RENTS_ROUTING[number];
 type RoyaltiesRouting = typeof ROYALTIES_ROUTING[number];
@@ -52,6 +63,10 @@ export const itemSchema = z.object({
   // Box 2 — Royalties
   box2_royalties: z.number().nonnegative().optional(),
   box2_royalties_routing: z.enum(ROYALTIES_ROUTING).optional(),
+  // Affirm portfolio investment property, not ordinary-course business or a
+  // passive activity. The same box 2 amount is reported on Schedule E.
+  box2_nonpassive_portfolio_investment_for_form4952_verified: z.literal(true)
+    .optional(),
   // Box 3 — Other income
   box3_other_income: z.number().nonnegative().optional(),
   box3_other_income_routing: z.enum(OTHER_INCOME_ROUTING).optional(),
@@ -72,6 +87,7 @@ export const itemSchema = z.object({
   // Box 9 — Crop insurance → Schedule F (unless deferred under IRC §451(d))
   box9_crop_insurance: z.number().nonnegative().optional(),
   box9_crop_insurance_deferred: z.boolean().optional(),
+  farm_id: z.string().min(1).optional(),
   // Box 10 — Attorney proceeds → Schedule 1 Line 8z (unless physical injury IRC §104)
   box10_attorney_proceeds: z.number().nonnegative().optional(),
   box10_attorney_taxable: z.boolean().optional(), // defaults true; false = excluded
@@ -88,6 +104,15 @@ export const itemSchema = z.object({
   box16_state_tax_withheld: z.number().nonnegative().optional(),
   box17_state_payer_id: z.string().optional(),
   box18_state_income: z.number().nonnegative().optional(),
+}).superRefine((item, ctx) => {
+  if ((item.box3_other_income ?? 0) > 0 && !item.box3_other_income_routing) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["box3_other_income_routing"],
+      message:
+        "Positive 1099-MISC box 3 income requires an explicit income classification",
+    });
+  }
 });
 
 export const inputSchema = z.object({
@@ -104,7 +129,10 @@ type M99Input = z.infer<typeof inputSchema>;
 const NQDC_EXCISE_RATE = 0.20;
 
 function totalOf(items: M99Item[], field: keyof M99Item): number {
-  return items.reduce((sum, item) => sum + ((item[field] as number | undefined) ?? 0), 0);
+  return items.reduce(
+    (sum, item) => sum + ((item[field] as number | undefined) ?? 0),
+    0,
+  );
 }
 
 function rentalIncomeForScheduleE(items: M99Item[]): number {
@@ -133,7 +161,7 @@ function royaltiesForScheduleC(items: M99Item[]): number {
 
 function prizesAwardsTotal(items: M99Item[]): number {
   return items
-    .filter((i) => (i.box3_other_income_routing ?? "prizes_awards") === "prizes_awards")
+    .filter((i) => i.box3_other_income_routing === "prizes_awards")
     .reduce((s, i) => s + (i.box3_other_income ?? 0), 0);
 }
 
@@ -141,12 +169,6 @@ function otherIncomeTotal(items: M99Item[]): number {
   return items
     .filter((i) => i.box3_other_income_routing === "other_income")
     .reduce((s, i) => s + (i.box3_other_income ?? 0), 0);
-}
-
-function cropInsuranceTotal(items: M99Item[]): number {
-  return items
-    .filter((i) => !i.box9_crop_insurance_deferred)
-    .reduce((s, i) => s + (i.box9_crop_insurance ?? 0), 0);
 }
 
 function taxableAttorneyTotal(items: M99Item[]): number {
@@ -172,12 +194,18 @@ function scheduleEOutput(items: M99Item[]): NodeOutput | null {
   const schedEInput: Partial<z.infer<typeof schedule_e["inputSchema"]>> = {};
   if (rental > 0) schedEInput.rental_income = rental;
   if (royalty > 0) schedEInput.royalty_income = royalty;
-  return output(schedule_e, schedEInput as AtLeastOne<z.infer<typeof schedule_e["inputSchema"]>>);
+  return output(
+    schedule_e,
+    schedEInput as AtLeastOne<z.infer<typeof schedule_e["inputSchema"]>>,
+  );
 }
 
 function niitIncomeTotal(items: M99Item[]): number {
-  return totalOf(items, "box8_substitute_payments") + items
-    .filter((i) => i.box3_niit_applicable === true)
+  return items
+    .filter((i) =>
+      i.box3_niit_applicable === true &&
+      i.box3_other_income_routing !== "form_8919"
+    )
     .reduce((s, i) => s + (i.box3_other_income ?? 0), 0);
 }
 
@@ -195,7 +223,10 @@ function schedule1Output(items: M99Item[]): NodeOutput | null {
   if (attorney > 0) s1Input.line8z_attorney_proceeds = attorney;
   if (nqdc > 0) s1Input.line8z_nqdc = nqdc;
   if (Object.keys(s1Input).length === 0) return null;
-  return output(schedule1, s1Input as AtLeastOne<z.infer<typeof schedule1["inputSchema"]>>);
+  return output(
+    schedule1,
+    s1Input as AtLeastOne<z.infer<typeof schedule1["inputSchema"]>>,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -214,18 +245,81 @@ class F1099mNode extends TaxNode<typeof inputSchema> {
     agi_aggregator,
     f1040,
     form8960,
+    form4952,
+    form8919,
   ]);
 
   compute(_ctx: NodeContext, input: M99Input): NodeResult {
     const { f1099ms: m99s } = input;
     if (m99s.length === 0) return { outputs: [] };
 
+    // Direct node callers can bypass inputSchema, so do not silently turn an
+    // unidentified box 3 amount into prizes and awards.
+    if (
+      m99s.some((item) =>
+        (item.box3_other_income ?? 0) > 0 && !item.box3_other_income_routing
+      )
+    ) {
+      throw new Error(
+        "Positive 1099-MISC box 3 income requires an explicit income classification",
+      );
+    }
+
     const outputs: NodeOutput[] = [];
+
+    const portfolioRoyalty = m99s.reduce((total, item) => {
+      if (
+        item.box2_nonpassive_portfolio_investment_for_form4952_verified !== true
+      ) return total;
+      const royalty = item.box2_royalties ?? 0;
+      if (
+        royalty <= 0 ||
+        item.box2_royalties_routing === "schedule_c"
+      ) {
+        throw new Error(
+          "1099-MISC Form 4952 portfolio royalty needs positive box 2 income routed to Schedule E",
+        );
+      }
+      return total + royalty;
+    }, 0);
+    if (portfolioRoyalty > 0) {
+      outputs.push(this.outputNodes.output(form4952, {
+        source_1099_royalties: portfolioRoyalty,
+      }));
+    }
+
+    const form8919Sources = m99s.flatMap((item) => {
+      const amount = item.box3_other_income ?? 0;
+      if (item.box3_other_income_routing !== "form_8919" || amount === 0) {
+        return [];
+      }
+      if (item.box3_niit_applicable === true) {
+        throw new Error(
+          "1099-MISC wages routed to Form 8919 cannot be NIIT income",
+        );
+      }
+      return [{
+        kind: "1099misc" as const,
+        recipient_ssn: item.recipient_tin,
+        payer_name: item.payer_name,
+        payer_tin: item.payer_tin,
+        amount,
+      }];
+    });
+    if (form8919Sources.length > 0) {
+      outputs.push(this.outputNodes.output(form8919, {
+        form1099_sources: form8919Sources,
+      }));
+    }
 
     // f1040 line25b — federal withholding (always aggregated)
     const totalWithheld = totalOf(m99s, "box4_federal_withheld");
     if (totalWithheld > 0) {
-      outputs.push(this.outputNodes.output(f1040, { line25b_withheld_1099: totalWithheld }));
+      outputs.push(
+        this.outputNodes.output(f1040, {
+          line25b_withheld_1099: totalWithheld,
+        }),
+      );
     }
 
     // schedule_e — rents (typical) + royalties (investment)
@@ -235,41 +329,91 @@ class F1099mNode extends TaxNode<typeof inputSchema> {
     // schedule_c — fishing boat + medical + fish purchased + rents (substantial services) + royalties (trade/business)
     const totalScheduleC = scheduleCGrossReceipts(m99s);
     if (totalScheduleC > 0) {
-      outputs.push(this.outputNodes.output(schedule_c, { line1_gross_receipts: totalScheduleC }));
+      outputs.push(
+        this.outputNodes.output(schedule_c, {
+          line1_gross_receipts: totalScheduleC,
+        }),
+      );
     }
 
     // schedule1 — prizes, other income, substitute payments, attorney proceeds, NQDC ordinary income
     const sched1 = schedule1Output(m99s);
     if (sched1) outputs.push(sched1);
 
-    // agi_aggregator — schedule1 is a print-only sink; all line 8 income must also route here
-    const totalLine8Income =
-      prizesAwardsTotal(m99s) +
-      otherIncomeTotal(m99s) +
-      totalOf(m99s, "box8_substitute_payments") +
-      taxableAttorneyTotal(m99s) +
-      totalOf(m99s, "box15_nqdc");
-    if (totalLine8Income > 0) {
-      outputs.push(this.outputNodes.output(agi_aggregator, { line8z_other: totalLine8Income }));
+    // Schedule 1 is a print-only sink, so the same classified income must
+    // reach AGI without collapsing line 8i prizes into line 8z other income.
+    const prizes = prizesAwardsTotal(m99s);
+    const substitute = totalOf(m99s, "box8_substitute_payments");
+    const nqdc = totalOf(m99s, "box15_nqdc");
+    const other = otherIncomeTotal(m99s) + taxableAttorneyTotal(m99s);
+    const agiIncome = {
+      ...(prizes > 0 ? { line8i_prizes_awards: prizes } : {}),
+      ...(substitute > 0 ? { line8z_substitute_payments: substitute } : {}),
+      ...(nqdc > 0 ? { line8z_nqdc: nqdc } : {}),
+      ...(other > 0 ? { line8z_other: other } : {}),
+    };
+    if (prizes > 0) {
+      outputs.push(this.outputNodes.output(agi_aggregator, {
+        ...agiIncome,
+        line8i_prizes_awards: prizes,
+      }));
+    } else if (substitute > 0) {
+      outputs.push(this.outputNodes.output(agi_aggregator, {
+        ...agiIncome,
+        line8z_substitute_payments: substitute,
+      }));
+    } else if (nqdc > 0) {
+      outputs.push(this.outputNodes.output(agi_aggregator, {
+        ...agiIncome,
+        line8z_nqdc: nqdc,
+      }));
+    } else if (other > 0) {
+      outputs.push(this.outputNodes.output(agi_aggregator, {
+        line8z_other: other,
+      }));
     }
 
-    // schedule_f — crop insurance (non-deferred only)
-    const totalCropInsurance = cropInsuranceTotal(m99s);
-    if (totalCropInsurance > 0) {
-      outputs.push(this.outputNodes.output(schedule_f, { crop_insurance: totalCropInsurance }));
+    // Schedule F line 6a shows received proceeds even when tax is deferred.
+    const farmCropSources = m99s.flatMap((item) => {
+      const amount = item.box9_crop_insurance ?? 0;
+      if (amount === 0) return [];
+      if (!item.farm_id) {
+        throw new Error("1099-MISC crop insurance requires farm_id");
+      }
+      return [{
+        farm_id: item.farm_id,
+        kind: "1099m_crop_insurance" as const,
+        amount,
+        ...(item.box9_crop_insurance_deferred === true
+          ? { deferred: true }
+          : {}),
+      }];
+    });
+    if (farmCropSources.length > 0) {
+      outputs.push(
+        this.outputNodes.output(schedule_f, { farm_sources: farmCropSources }),
+      );
     }
 
     // schedule2 — §409A excise tax (20% of NQDC includible amount)
     const totalNqdc = totalOf(m99s, "box15_nqdc");
     if (totalNqdc > 0) {
-      outputs.push(this.outputNodes.output(schedule2, { line17h_nqdc_tax: totalNqdc * NQDC_EXCISE_RATE }));
+      outputs.push(
+        this.outputNodes.output(schedule2, {
+          line17h_nqdc_tax: totalNqdc * NQDC_EXCISE_RATE,
+        }),
+      );
     }
 
     // Form 8960 line 7 includes substitute payments and box 3 income explicitly
     // classified as investment income (IRC §1411).
     const totalNiit = niitIncomeTotal(m99s);
     if (totalNiit > 0) {
-      outputs.push(this.outputNodes.output(form8960, { line7_other_modifications: totalNiit }));
+      outputs.push(
+        this.outputNodes.output(form8960, {
+          line7_other_modifications: totalNiit,
+        }),
+      );
     }
 
     return { outputs };

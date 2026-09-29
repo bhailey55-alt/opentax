@@ -1,137 +1,63 @@
-import { assertEquals, assertStringIncludes } from "@std/assert";
+import { assertEquals, assertThrows } from "@std/assert";
 import { form8839 } from "./f8839.ts";
+import { FilingStatus } from "../../../nodes/types.ts";
 
-function assertNotIncludes(actual: string, expected: string) {
-  assertEquals(
-    actual.includes(expected),
-    false,
-    `Expected string NOT to include: ${expected}`,
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Section 1: Empty input
-// ---------------------------------------------------------------------------
-
-Deno.test("empty object returns empty string", () => {
-  assertEquals(form8839.build({}), "");
-});
-
-// ---------------------------------------------------------------------------
-// Section 2: Unknown keys ignored
-// ---------------------------------------------------------------------------
-
-Deno.test("all unknown keys returns empty string", () => {
-  assertEquals(form8839.build({ junk: 999, foo: "bar", baz: 0 }), "");
-});
-
-// ---------------------------------------------------------------------------
-// Section 3: Zero value emitted
-// ---------------------------------------------------------------------------
-
-Deno.test("adoption_benefits at zero is emitted", () => {
-  const result = form8839.build({ adoption_benefits: 0 });
-  assertStringIncludes(result, "<AdoptionBenefitsAmt>0</AdoptionBenefitsAmt>");
-});
-
-// ---------------------------------------------------------------------------
-// Section 4: Per-field mapping (one test per field, 3 fields)
-// ---------------------------------------------------------------------------
-
-Deno.test("adoption_benefits maps to AdoptionBenefitsAmt", () => {
-  const result = form8839.build({ adoption_benefits: 5000 });
-  assertStringIncludes(
-    result,
-    "<AdoptionBenefitsAmt>5000</AdoptionBenefitsAmt>",
-  );
-});
-
-Deno.test("magi maps to ModifiedAGIAmt", () => {
-  const result = form8839.build({ magi: 120000 });
-  assertStringIncludes(result, "<ModifiedAGIAmt>120000</ModifiedAGIAmt>");
-});
-
-Deno.test("income_tax_liability maps to IncomeTaxLiabilityAmt", () => {
-  const result = form8839.build({ income_tax_liability: 15000 });
-  assertStringIncludes(
-    result,
-    "<IncomeTaxLiabilityAmt>15000</IncomeTaxLiabilityAmt>",
-  );
-});
-
-// ---------------------------------------------------------------------------
-// Section 5: Sparse output
-// ---------------------------------------------------------------------------
-
-Deno.test("single known field emits only that element, absent fields omitted", () => {
-  const result = form8839.build({ adoption_benefits: 5000 });
-  assertStringIncludes(
-    result,
-    "<AdoptionBenefitsAmt>5000</AdoptionBenefitsAmt>",
-  );
-  assertNotIncludes(result, "<ModifiedAGIAmt>");
-  assertNotIncludes(result, "<IncomeTaxLiabilityAmt>");
-});
-
-Deno.test("two fields present: only those two elements emitted", () => {
-  const result = form8839.build({ adoption_benefits: 5000, magi: 120000 });
-  assertStringIncludes(
-    result,
-    "<AdoptionBenefitsAmt>5000</AdoptionBenefitsAmt>",
-  );
-  assertStringIncludes(result, "<ModifiedAGIAmt>120000</ModifiedAGIAmt>");
-  assertNotIncludes(result, "<IncomeTaxLiabilityAmt>");
-});
-
-// ---------------------------------------------------------------------------
-// Section 6: All fields present
-// ---------------------------------------------------------------------------
-
-const allFields = {
-  adoption_benefits: 5000,
-  magi: 120000,
-  income_tax_liability: 15000,
+const sourcedChild = {
+  first_name: "Ada",
+  last_name: "Taxpayer",
+  birth_year: 2020,
+  ssn: "111223334",
+  final_decree: {
+    source_document_id: "decree-1",
+    finalization_date: "2025-07-15",
+    issuing_jurisdiction: "TX",
+    child_origin: "US" as const,
+  },
+  expenses: [{
+    source_document_id: "invoice-1",
+    paid_date: "2025-03-12",
+    category: "attorney_fee" as const,
+    payee: "Adoption Counsel",
+    amount: 15_000,
+    reimbursed_amount: 0,
+  }],
 };
 
-Deno.test("all 3 fields present: output wrapped in IRS8839 tag", () => {
-  const result = form8839.build(allFields);
-  assertStringIncludes(result, "<IRS8839>");
-  assertStringIncludes(result, "</IRS8839>");
+Deno.test("Form 8839 MeF: absent pending emits no document", () => {
+  assertEquals(form8839.build([]), "");
 });
 
-Deno.test("all 3 fields present: all elements emitted", () => {
-  const result = form8839.build(allFields);
-  assertStringIncludes(
-    result,
-    "<AdoptionBenefitsAmt>5000</AdoptionBenefitsAmt>",
-  );
-  assertStringIncludes(result, "<ModifiedAGIAmt>120000</ModifiedAGIAmt>");
-  assertStringIncludes(
-    result,
-    "<IncomeTaxLiabilityAmt>15000</IncomeTaxLiabilityAmt>",
+Deno.test("Form 8839 MeF: empty pending record rejects", () => {
+  assertThrows(() => form8839.build({}), Error, "empty pending record");
+});
+
+Deno.test("Form 8839 MeF: receipt and decree identifiers do not bypass return reconciliation", () => {
+  assertThrows(
+    () =>
+      form8839.build({
+        children: [sourcedChild],
+      }),
+    Error,
+    "source-verified adoption eligibility",
   );
 });
 
-// ---------------------------------------------------------------------------
-// Section 7: Non-numeric fields (arrays, enums) are silently ignored
-// ---------------------------------------------------------------------------
-
-Deno.test("children array field is silently ignored", () => {
-  const result = form8839.build({
-    children: [{ name: "child1" }],
-    adoption_benefits: 5000,
-  });
-  assertStringIncludes(
-    result,
-    "<AdoptionBenefitsAmt>5000</AdoptionBenefitsAmt>",
+Deno.test("Form 8839 MeF: typed source facts still need reviewed contents and finalized return", () => {
+  assertThrows(
+    () =>
+      form8839.build({
+        children: [sourcedChild],
+        filing_status: FilingStatus.Single,
+      }),
+    Error,
+    "source-verified adoption eligibility",
   );
-  assertNotIncludes(result, "children");
-  assertNotIncludes(result, "child1");
 });
 
-Deno.test("filing_status enum field is silently ignored", () => {
-  const result = form8839.build({ filing_status: "MFJ", magi: 120000 });
-  assertStringIncludes(result, "<ModifiedAGIAmt>120000</ModifiedAGIAmt>");
-  assertNotIncludes(result, "filing_status");
-  assertNotIncludes(result, "MFJ");
+Deno.test("Form 8839 MeF: employer benefit fails closed", () => {
+  assertThrows(
+    () => form8839.build({ adoption_benefits: 4_000 }),
+    Error,
+    "source-verified adoption eligibility",
+  );
 });

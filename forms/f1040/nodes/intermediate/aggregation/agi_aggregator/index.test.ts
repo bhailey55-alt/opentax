@@ -1,4 +1,4 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertThrows } from "@std/assert";
 import { agi_aggregator } from "./index.ts";
 import type { NodeContext } from "../../../../../../core/types/node-context.ts";
 
@@ -18,6 +18,97 @@ function agi(result: ReturnType<typeof compute>): number {
 Deno.test("agi_aggregator: wages only", () => {
   const result = compute({ line1a_wages: 60_000 });
   assertEquals(agi(result), 60_000);
+});
+
+Deno.test("agi_aggregator: S corporation tax-benefit recovery reaches Form 1040 line 8 once", () => {
+  const result = compute({
+    line1a_wages: 60_000,
+    line8z_k1_s_corp_tax_benefit_recovery: 400,
+  });
+  const form1040 = result.outputs.find((o) => o.nodeType === "f1040");
+  assertEquals(form1040?.fields.line8_additional_income, 400);
+  assertEquals(agi(result), 60_400);
+});
+
+Deno.test("agi_aggregator: Form 7203 disallowance matches Schedule 1 line 5 and Form 1040 line 8", () => {
+  const result = compute({
+    line5_schedule_e: -4_000,
+    basis_disallowed_add_back: 1_000,
+  });
+  const form1040 = result.outputs.find((o) => o.nodeType === "f1040");
+  assertEquals(form1040?.fields.line8_additional_income, -3_000);
+  assertEquals(agi(result), -3_000);
+});
+
+Deno.test("agi_aggregator: Form 8962 modified AGI adds Worksheet 1-1 amounts", () => {
+  const result = compute({
+    line1a_wages: 30_000,
+    line6a_ss_gross: 10_000,
+    line6b_ss_taxable: 2_000,
+    tax_exempt_interest: 500,
+    line8d_foreign_earned_income_exclusion: 1_000,
+    line8d_foreign_housing_deduction: 300,
+  });
+  assertEquals(agi(result), 30_700);
+  const form8962 = result.outputs.find((item) => item.nodeType === "form8962");
+  assertEquals(form8962?.fields.taxpayer_modified_agi, 40_500);
+  const form8880 = result.outputs.find((item) => item.nodeType === "form8880");
+  assertEquals(form8880?.fields.agi, 30_700);
+  assertEquals(form8880?.fields.foreign_agi_addback, 1_300);
+});
+
+Deno.test("agi_aggregator: Pub 974 audit keeps income and adjustments separate", () => {
+  const result = compute({
+    line1a_wages: 50_000,
+    tax_exempt_interest: 300,
+    line15_se_deduction: 2_000,
+    line16_sep_simple: 1_000,
+    line17_se_health_insurance: 4_000,
+  });
+  const audit = result.outputs.find((item) => item.nodeType === "form8962")
+    ?.fields.pub974_income_audit;
+  assertEquals(audit, {
+    schedule1_line3_schedule_c: 0,
+    form1040_line9_total_income: 50_000,
+    form1040_line2a_tax_exempt_interest: 300,
+    form1040_nontaxable_social_security: 0,
+    form2555_lines45_and_50: 0,
+    schedule1_adjustments_except_line17: 3_000,
+    schedule1_line15_se_tax_deduction: 2_000,
+    schedule1_line16_retirement_deduction: 1_000,
+    schedule1_line17_se_health_insurance: 4_000,
+    unsupported_adjustments_present: false,
+  });
+});
+
+Deno.test("agi_aggregator: Pub 974 one-business audit rejects other business schedules", () => {
+  const result = compute({
+    line3_schedule_c: 50_000,
+    line6_schedule_f: 5_000,
+  });
+  const audit = result.outputs.find((item) => item.nodeType === "form8962")
+    ?.fields.pub974_income_audit as
+      | {
+        schedule1_line3_schedule_c: number;
+        unsupported_adjustments_present: boolean;
+      }
+      | undefined;
+  assertEquals(audit?.schedule1_line3_schedule_c, 50_000);
+  assertEquals(audit?.unsupported_adjustments_present, true);
+});
+
+Deno.test("agi_aggregator: Form 8962 adds non-taxable Social Security after its worksheet", () => {
+  const result = compute({
+    line1a_wages: 20_000,
+    line6a_ss_gross: 10_000,
+  });
+  const taxable = result.outputs.find((item) => item.nodeType === "f1040")
+    ?.fields.line6b_ss_taxable as number | undefined;
+  const form8962 = result.outputs.find((item) => item.nodeType === "form8962");
+  assertEquals(
+    form8962?.fields.taxpayer_modified_agi,
+    agi(result) + 10_000 - (taxable ?? 0),
+  );
 });
 
 Deno.test("agi_aggregator: wages + taxable interest", () => {
@@ -53,6 +144,22 @@ Deno.test("agi_aggregator: capital loss reduces AGI", () => {
 Deno.test("agi_aggregator: unemployment compensation added to AGI", () => {
   const result = compute({ line1a_wages: 30_000, line7_unemployment: 5_000 });
   assertEquals(agi(result), 35_000);
+});
+
+Deno.test("agi_aggregator: timely HSA excess-withdrawal earnings increase AGI", () => {
+  const result = compute({
+    line1a_wages: 30_000,
+    line8z_hsa_excess_earnings: 100,
+  });
+  assertEquals(agi(result), 30_100);
+});
+
+Deno.test("agi_aggregator: employer HSA excess omitted from W-2 increases AGI", () => {
+  const result = compute({
+    line1a_wages: 30_000,
+    line8z_hsa_excess_employer: 700,
+  });
+  assertEquals(agi(result), 30_700);
 });
 
 Deno.test("agi_aggregator: ordinary dividends included", () => {
@@ -134,12 +241,12 @@ Deno.test("agi_aggregator: foreign housing deduction reduces AGI", () => {
   assertEquals(agi(result), 45_000);
 });
 
-Deno.test("agi_aggregator: savings bond exclusion reduces AGI", () => {
+Deno.test("agi_aggregator: gambling winnings increase AGI", () => {
   const result = compute({
     line2b_taxable_interest: 2_000,
-    line8b_savings_bond_exclusion: 1_000,
+    line8b_gambling_winnings: 1_000,
   });
-  assertEquals(agi(result), 1_000);
+  assertEquals(agi(result), 3_000);
 });
 
 // ─── Above-the-line deductions ────────────────────────────────────────────────
@@ -212,11 +319,11 @@ Deno.test("agi_aggregator: routes agi to schedule_a", () => {
   assertEquals((schA!.fields as Record<string, number>).agi, 75_000);
 });
 
-Deno.test("agi_aggregator: wages-only produces exactly 12 outputs (no Schedule 1 items)", () => {
+Deno.test("agi_aggregator: wages-only produces 13 context outputs without Schedule 1 items", () => {
   // With wages only, line8=0 and line10=0 so no extra f1040 fields beyond line11_agi
   // Outputs include Schedule 1-A MAGI context in addition to the existing eleven.
   const result = compute({ line1a_wages: 50_000 });
-  assertEquals(result.outputs.length, 12);
+  assertEquals(result.outputs.length, 13);
 });
 
 Deno.test("agi_aggregator: cap gain distributions included in AGI", () => {
@@ -343,7 +450,7 @@ Deno.test("agi_aggregator: schedule_c net loss reduces AGI from other sources", 
 Deno.test("agi_aggregator: student loan interest deduction reduces AGI", () => {
   const result = compute({
     line1a_wages: 60_000,
-    line19_student_loan_interest: 2_500,
+    line21_student_loan_interest: 2_500,
   });
   assertEquals(agi(result), 57_500);
 });
@@ -417,8 +524,53 @@ Deno.test("agi_aggregator: pre-computed line6b_ss_taxable bypasses worksheet", (
 // ─── Negative adjustment / loss from one source reduces AGI ──────────────────
 
 Deno.test("agi_aggregator: rental real estate passive loss reduces AGI", () => {
-  const result = compute({ line1a_wages: 100_000, line17_schedule_e: -25_000 });
+  const result = compute({ line1a_wages: 100_000, line5_schedule_e: -25_000 });
   assertEquals(agi(result), 75_000);
+});
+
+Deno.test("agi_aggregator: rental profits limit the special passive loss allowance", () => {
+  const result = compute({
+    line1a_wages: 50_000,
+    line5_schedule_e: 10_000,
+    pal_current_income: 10_000,
+    pal_rental_income: 10_000,
+    pal_current_loss: 30_000,
+    pal_rental_loss: 20_000,
+    pal_active_participation: true,
+    filing_status: "single",
+  });
+  assertEquals(agi(result), 40_000);
+});
+
+Deno.test("agi_aggregator: released Form 4797 and operating PAL is booked once", () => {
+  const result = compute({
+    line1a_wages: 60_000,
+    line5_schedule_e: 4_000,
+    pal_current_income: 4_000,
+    pal_prior_unallowed: 10_000,
+    filing_status: "single",
+  });
+  // The Form 8582 ledger assigns $800 to Schedule E and $3,200 to Form 4797.
+  // AGI sees the combined $4,000 only once; Form 8582 supplies the line split.
+  assertEquals(agi(result), 60_000);
+  const f1040 = result.outputs.find((item) => item.nodeType === "f1040");
+  assertEquals(f1040?.fields.line8_additional_income, undefined);
+});
+
+Deno.test("agi_aggregator: active rental income share cannot be guessed", () => {
+  assertThrows(
+    () =>
+      compute({
+        line1a_wages: 50_000,
+        pal_current_income: 10_000,
+        pal_current_loss: 30_000,
+        pal_rental_loss: 20_000,
+        pal_active_participation: true,
+        filing_status: "single",
+      }),
+    Error,
+    "rental portion of current passive income",
+  );
 });
 
 Deno.test("agi_aggregator: schedule_f farm net loss reduces AGI", () => {
@@ -470,14 +622,23 @@ Deno.test("agi_aggregator: MFS lived-with-spouse → 85% of SS always taxable", 
 });
 
 Deno.test("agi_aggregator: MFS not-lived-with-spouse → normal worksheet applies", () => {
-  // No mfs_lived_with_spouse flag → uses normal $25k/$34k thresholds
+  // An explicit no answer uses the normal $25k/$34k thresholds.
   // provisional = 5_000 + 10_000 = 15_000 < 25_000 → $0 taxable
   const result = compute({
     line1a_wages: 5_000,
     line6a_ss_gross: 20_000,
     filing_status: "mfs",
+    mfs_lived_with_spouse: false,
   });
   assertEquals(agi(result), 5_000);
+});
+
+Deno.test("agi_aggregator: MFS Social Security needs a lived-with-spouse answer", () => {
+  assertThrows(
+    () => compute({ line6a_ss_gross: 20_000, filing_status: "mfs" }),
+    Error,
+    "MFS Social Security taxability requires whether the filer lived with their spouse",
+  );
 });
 
 // ─── AGI can be negative in NOL scenarios (IRC §172) ─────────────────────────

@@ -27,6 +27,7 @@ export type ExecuteResult = {
  * - If target is a scalar and incoming is scalar, promote both to an array (accumulation pattern:
  *   multiple upstream nodes depositing the same key produces an array, e.g. two W-2s → wages[]).
  * - If target is a scalar and incoming is an array, replace with the array.
+ * - A node's self-output is its finalized value and replaces its accumulated input.
  */
 function mergePending(
   pending: Record<string, Record<string, unknown>>,
@@ -34,7 +35,7 @@ function mergePending(
   targetId: string,
   input: Readonly<Record<string, unknown>>,
   isDirectInput: boolean,
-  isSelfOutput = false,
+  isSelfOutput: boolean,
 ): void {
   if (pending[targetId] === undefined) {
     pending[targetId] = {};
@@ -127,6 +128,24 @@ export function execute(
           output.fields,
           step.nodeType === "start",
           output.nodeType === step.nodeType,
+        );
+      }
+      for (const finalized of result.finalizations ?? []) {
+        if (
+          !registry[finalized.nodeType] ||
+          pending[finalized.nodeType] === undefined
+        ) {
+          throw new Error(
+            `Cannot finalize node "${finalized.nodeType}" before it has pending values`,
+          );
+        }
+        mergePending(
+          pending,
+          directInputFields,
+          finalized.nodeType,
+          finalized.fields,
+          false,
+          true,
         );
       }
       if (result.carryforwards) {

@@ -3,12 +3,17 @@ import type {
   NodeOutput,
   NodeResult,
 } from "../../../../../../core/types/tax-node.ts";
-import { TaxNode, output } from "../../../../../../core/types/tax-node.ts";
+import { output, TaxNode } from "../../../../../../core/types/tax-node.ts";
 import { OutputNodes } from "../../../../../../core/types/output-nodes.ts";
 import { agi_aggregator } from "../../aggregation/agi_aggregator/index.ts";
 import { schedule1 } from "../../../outputs/schedule1/index.ts";
 import { schedule_se } from "../schedule_se/index.ts";
 import { income_tax_calculation } from "../../worksheets/income_tax_calculation/index.ts";
+import { f1040 } from "../../../outputs/f1040/index.ts";
+import {
+  calculatePhysicalPresence2555,
+  physicalPresenceFilingSchema,
+} from "./calculation.ts";
 import type { NodeContext } from "../../../../../../core/types/node-context.ts";
 import { CONFIG_BY_YEAR } from "../../../config/index.ts";
 
@@ -23,6 +28,7 @@ const DAYS_IN_YEAR = 365;
 // ─── Schema ───────────────────────────────────────────────────────────────────
 
 export const inputSchema = z.object({
+  filing_details: physicalPresenceFilingSchema.optional(),
   // Foreign wages / salary earned abroad (Form 2555, Part VII line 27)
   foreign_wages: z.number().nonnegative().optional(),
 
@@ -48,27 +54,29 @@ export const inputSchema = z.object({
   // Defaults to 365 when not provided.
   qualifying_days: z.number().int().min(1).max(365).optional(),
 
-  // Foreign housing expenses paid by the taxpayer (Form 2555 Part VIII line 30).
-  // IRC §911(c)(2).
+  // Retained only to reject the retired aggregate housing API explicitly.
   foreign_housing_expenses: z.number().nonnegative().optional(),
-
-  // Foreign housing exclusion provided by employer (W-2 or equivalent).
-  // Reported on Form 2555 line 44.
   employer_housing_exclusion: z.number().nonnegative().optional(),
 });
+
+export const filingInputSchema = z.object({
+  filing_details: physicalPresenceFilingSchema,
+}).strict();
 
 type Form2555Input = z.infer<typeof inputSchema>;
 
 // ─── Pure helpers ─────────────────────────────────────────────────────────────
 
 function qualifies(input: Form2555Input): boolean {
-  const physicalPresence = (input.days_in_foreign_country ?? 0) >= PHYSICAL_PRESENCE_DAYS;
+  const physicalPresence =
+    (input.days_in_foreign_country ?? 0) >= PHYSICAL_PRESENCE_DAYS;
   const bfr = input.bona_fide_resident === true;
   return physicalPresence || bfr;
 }
 
 function totalForeignEarnedIncome(input: Form2555Input): number {
-  return (input.foreign_wages ?? 0) + (input.foreign_self_employment_income ?? 0);
+  return (input.foreign_wages ?? 0) +
+    (input.foreign_self_employment_income ?? 0);
 }
 
 // Prorate FEIE limit per IRC §911(b)(2)(A): limit × (qualifying_days / 365).
@@ -84,20 +92,13 @@ function earnedIncomeExclusion(income: number, limit: number): number {
   return Math.min(income, limit);
 }
 
-// Housing exclusion / deduction (IRC §911(c)).
-function housingAmount(input: Form2555Input, housingBase: number): number {
-  const employer = input.employer_housing_exclusion ?? 0;
-  const taxpayerExpenses = input.foreign_housing_expenses ?? 0;
-  const taxpayerExclusion = Math.max(0, taxpayerExpenses - housingBase);
-  return employer + taxpayerExclusion;
-}
-
 // ─── Node class ───────────────────────────────────────────────────────────────
 
 class Form2555Node extends TaxNode<typeof inputSchema> {
   readonly nodeType = "form2555";
   readonly inputSchema = inputSchema;
   readonly outputNodes = new OutputNodes([
+    f1040,
     schedule1,
     agi_aggregator,
     schedule_se,
@@ -108,13 +109,61 @@ class Form2555Node extends TaxNode<typeof inputSchema> {
     const cfg = CONFIG_BY_YEAR[ctx.taxYear];
     if (!cfg) throw new Error(`No f1040 config for year ${ctx.taxYear}`);
     const input = inputSchema.parse(rawInput);
+    if (
+      input.foreign_housing_expenses !== undefined ||
+      input.employer_housing_exclusion !== undefined
+    ) {
+      throw new Error(
+        "Form 2555 aggregate housing inputs are unsupported; provide structured employee housing filing facts",
+      );
+    }
+
+    if (input.filing_details) {
+      if (
+        input.foreign_wages !== undefined ||
+        input.foreign_self_employment_income !== undefined ||
+        input.days_in_foreign_country !== undefined ||
+        input.bona_fide_resident !== undefined ||
+        input.qualifying_days !== undefined
+      ) {
+        throw new Error(
+          "Form 2555 filing details cannot be mixed with aggregate inputs",
+        );
+      }
+      const lines = calculatePhysicalPresence2555(
+        input.filing_details,
+        ctx.taxYear,
+      );
+      return {
+        outputs: [
+          output(f1040, {
+            line1h_other_earned: lines.line19,
+            form8839_form2555_line45: lines.line45,
+            form8839_form2555_line50: lines.line50,
+          }),
+          output(agi_aggregator, {
+            line1h_other_earned: lines.line19,
+            line8d_foreign_earned_income_exclusion: lines.line45,
+          }),
+          output(schedule1, {
+            line8d_foreign_earned_income_exclusion: lines.line45,
+          }),
+          output(income_tax_calculation, {
+            foreign_earned_income_exclusion: lines.line45,
+            ...(input.filing_details
+                .amt_line2b_disallowed_deductions_and_exclusions !== undefined
+              ? {
+                foreign_exclusion_disallowed_deductions: input.filing_details
+                  .amt_line2b_disallowed_deductions_and_exclusions,
+              }
+              : {}),
+          }),
+        ],
+      };
+    }
 
     const income = totalForeignEarnedIncome(input);
-    const hasHousingActivity =
-      (input.employer_housing_exclusion ?? 0) > 0 ||
-      (input.foreign_housing_expenses ?? 0) > 0;
-
-    if (income === 0 && !hasHousingActivity) {
+    if (income === 0) {
       return { outputs: [] };
     }
 
@@ -128,15 +177,19 @@ class Form2555Node extends TaxNode<typeof inputSchema> {
     const feieLimit = proratedFeieLimit(input, cfg.feieLimit);
     const exclusion = earnedIncomeExclusion(income, feieLimit);
     if (exclusion > 0) {
-      outputs.push(output(schedule1, { line8d_foreign_earned_income_exclusion: exclusion }));
-      outputs.push(output(agi_aggregator, { line8d_foreign_earned_income_exclusion: exclusion }));
-    }
-
-    // Housing deduction — IRC §911(a)(2), (c)
-    const housing = housingAmount(input, cfg.feieHousingBase);
-    if (housing > 0) {
-      outputs.push(output(schedule1, { line8d_foreign_housing_deduction: housing }));
-      outputs.push(output(agi_aggregator, { line8d_foreign_housing_deduction: housing }));
+      outputs.push(output(f1040, {
+        form8839_form2555_line45: exclusion,
+      }));
+      outputs.push(
+        output(schedule1, {
+          line8d_foreign_earned_income_exclusion: exclusion,
+        }),
+      );
+      outputs.push(
+        output(agi_aggregator, {
+          line8d_foreign_earned_income_exclusion: exclusion,
+        }),
+      );
     }
 
     // SE tax preservation — IRC §1401 applies to foreign SE income regardless of FEIE.
@@ -150,9 +203,11 @@ class Form2555Node extends TaxNode<typeof inputSchema> {
     // pushing non-excluded income into higher brackets.
     // Emit total exclusion to income_tax_calculation so it can apply the floor.
     // IRC §911(f); Form 2555 Instructions "Tax on Income Not Excluded".
-    const totalExclusion = exclusion + housing;
+    const totalExclusion = exclusion;
     if (totalExclusion > 0) {
-      outputs.push(output(income_tax_calculation, { foreign_earned_income_exclusion: totalExclusion }));
+      outputs.push(output(income_tax_calculation, {
+        foreign_earned_income_exclusion: totalExclusion,
+      }));
     }
 
     return { outputs };

@@ -26,17 +26,31 @@ const vehicleLoanSchema = z.object({
 );
 
 /** Fields a taxpayer supplies directly for Schedule 1-A. */
+export const seniorZeroExclusionsReviewSchema = z.object({
+  no_section933_puerto_rico_excluded_income: z.literal(true),
+  section933_review_source_reference: z.string().trim().min(1),
+  no_form2555_filed: z.literal(true),
+  form2555_review_source_reference: z.string().trim().min(1),
+  no_form4563_filed: z.literal(true),
+  form4563_review_source_reference: z.string().trim().min(1),
+}).strict();
+
 export const claimInputSchema = z.object({
   taxpayer_qualified_overtime_compensation: z.number().nonnegative().optional(),
   spouse_qualified_overtime_compensation: z.number().nonnegative().optional(),
   vehicle_loans: z.array(vehicleLoanSchema).min(1).optional(),
+  senior_zero_exclusions_review: seniorZeroExclusionsReviewSchema.optional(),
 });
 
 export const inputSchema = claimInputSchema.extend({
-  qualified_employee_tips: z.number().nonnegative().optional(),
+  qualified_employee_tips: z.array(z.object({
+    employee_ssn: z.string(),
+    amount: z.number().nonnegative(),
+  })).optional(),
   magi: z.number().optional(),
   filing_status: z.nativeEnum(FilingStatus).optional(),
-  has_valid_ssn: z.boolean().optional(),
+  taxpayer_ssn: z.string().optional(),
+  spouse_ssn: z.string().optional(),
   taxpayer_has_valid_ssn: z.boolean().optional(),
   spouse_has_valid_ssn: z.boolean().optional(),
   taxpayer_age_65_or_older: z.boolean().optional(),
@@ -44,6 +58,21 @@ export const inputSchema = claimInputSchema.extend({
 });
 
 type Schedule1AInput = z.infer<typeof inputSchema>;
+
+export const seniorOnlyLinesSchema = z.object({
+  line1_agi: z.number().int(),
+  line3_magi: z.number().int(),
+  line32_threshold: z.number().int().positive(),
+  line33_excess_magi: z.number().int().nonnegative(),
+  line34_reduction: z.number().int().nonnegative(),
+  line35_per_person: z.number().int().nonnegative(),
+  line36a_taxpayer: z.number().int().nonnegative(),
+  line36b_spouse: z.number().int().nonnegative(),
+  line37_senior: z.number().int().positive(),
+  line38_total: z.number().int().positive(),
+}).strict();
+
+export type SeniorOnlyLines = z.infer<typeof seniorOnlyLinesSchema>;
 
 const QUALIFIED_TIPS_CAP = 25_000;
 const OVERTIME_CAP = 12_500;
@@ -65,11 +94,28 @@ function tipsOvertimePhaseout(input: Schedule1AInput): number | undefined {
 }
 
 export function qualifiedTipsDeduction(input: Schedule1AInput): number {
-  const tips = Math.min(input.qualified_employee_tips ?? 0, QUALIFIED_TIPS_CAP);
+  const taxpayerSsn = input.taxpayer_ssn?.replaceAll("-", "");
+  const spouseSsn = input.spouse_ssn?.replaceAll("-", "");
+  const eligibleTips = (input.qualified_employee_tips ?? []).reduce(
+    (sum, entry) => {
+      const employeeSsn = entry.employee_ssn.replaceAll("-", "");
+      if (
+        employeeSsn === taxpayerSsn &&
+        input.taxpayer_has_valid_ssn === true
+      ) return sum + entry.amount;
+      if (
+        input.filing_status === FilingStatus.MFJ &&
+        employeeSsn === spouseSsn &&
+        input.spouse_has_valid_ssn === true
+      ) return sum + entry.amount;
+      return sum;
+    },
+    0,
+  );
+  const tips = Math.min(eligibleTips, QUALIFIED_TIPS_CAP);
   const phaseout = tipsOvertimePhaseout(input);
   if (
     tips === 0 ||
-    input.has_valid_ssn !== true ||
     input.filing_status === FilingStatus.MFS ||
     phaseout === undefined
   ) {
@@ -152,9 +198,79 @@ export function seniorDeduction(
   const perPerson = Math.max(
     0,
     cfg.seniorDeductionMax -
-      Math.max(0, input.magi - threshold) * cfg.seniorDeductionPhaseoutRate,
+      Math.round(
+        Math.max(0, input.magi - threshold) *
+          cfg.seniorDeductionPhaseoutRate,
+      ),
   );
   return eligiblePeople * perPerson;
+}
+
+/** The strictly zero-exclusion, senior-only TY2025 filing subset. */
+export function calculateSeniorOnlySchedule1A(
+  ctx: NodeContext,
+  rawInput: Schedule1AInput,
+): SeniorOnlyLines {
+  if (ctx.taxYear !== 2025) {
+    throw new Error("Schedule 1-A senior-only filing needs tax year 2025");
+  }
+  const input = inputSchema.parse(rawInput);
+  if (!input.senior_zero_exclusions_review) {
+    throw new Error(
+      "Schedule 1-A senior filing needs sourced zero-exclusion review for Part I",
+    );
+  }
+  if (
+    (input.qualified_employee_tips?.length ?? 0) > 0 ||
+    (input.taxpayer_qualified_overtime_compensation ?? 0) > 0 ||
+    (input.spouse_qualified_overtime_compensation ?? 0) > 0 ||
+    (input.vehicle_loans?.length ?? 0) > 0
+  ) {
+    throw new Error(
+      "Schedule 1-A senior-only filing cannot include tips, overtime, or vehicle interest",
+    );
+  }
+  if (
+    input.magi === undefined || !Number.isSafeInteger(input.magi) ||
+    input.filing_status === undefined
+  ) {
+    throw new Error(
+      "Schedule 1-A senior filing needs whole-dollar Form 1040 AGI and filing status",
+    );
+  }
+  const cfg = CONFIG_BY_YEAR[2025];
+  const threshold = input.filing_status === FilingStatus.MFJ
+    ? cfg.seniorDeductionPhaseoutMfj
+    : cfg.seniorDeductionPhaseoutSingle;
+  const excess = Math.max(0, input.magi - threshold);
+  const reduction = Math.round(excess * cfg.seniorDeductionPhaseoutRate);
+  const perPerson = Math.max(0, cfg.seniorDeductionMax - reduction);
+  const taxpayer = input.taxpayer_age_65_or_older === true &&
+      input.taxpayer_has_valid_ssn === true
+    ? perPerson
+    : 0;
+  const spouse = input.filing_status === FilingStatus.MFJ &&
+      input.spouse_age_65_or_older === true &&
+      input.spouse_has_valid_ssn === true
+    ? perPerson
+    : 0;
+  if (input.filing_status === FilingStatus.MFS || taxpayer + spouse <= 0) {
+    throw new Error(
+      "Schedule 1-A senior filing needs an eligible senior with a valid SSN and joint filing when married",
+    );
+  }
+  return seniorOnlyLinesSchema.parse({
+    line1_agi: input.magi,
+    line3_magi: input.magi,
+    line32_threshold: threshold,
+    line33_excess_magi: excess,
+    line34_reduction: reduction,
+    line35_per_person: perPerson,
+    line36a_taxpayer: taxpayer,
+    line36b_spouse: spouse,
+    line37_senior: taxpayer + spouse,
+    line38_total: taxpayer + spouse,
+  });
 }
 
 class Schedule1ANode extends TaxNode<typeof inputSchema> {
@@ -164,18 +280,23 @@ class Schedule1ANode extends TaxNode<typeof inputSchema> {
 
   compute(ctx: NodeContext, rawInput: Schedule1AInput): NodeResult {
     const input = inputSchema.parse(rawInput);
+    const enhancedSeniorDeduction = seniorDeduction(ctx, input);
+    const vehicleInterestDeduction = vehicleLoanInterestDeduction(input);
     const deduction = qualifiedTipsDeduction(input) +
       qualifiedOvertimeDeduction(input) +
-      vehicleLoanInterestDeduction(input) +
-      seniorDeduction(ctx, input);
+      vehicleInterestDeduction +
+      enhancedSeniorDeduction;
     if (deduction === 0) return { outputs: [] };
     return {
       outputs: [
         this.outputNodes.output(f1040, {
           line13b_additional_deductions: deduction,
+          schedule1a_line37_senior_deduction: enhancedSeniorDeduction,
         }),
         this.outputNodes.output(standard_deduction, {
           additional_deductions: deduction,
+          enhanced_senior_deduction: enhancedSeniorDeduction,
+          qualified_vehicle_loan_interest_deduction: vehicleInterestDeduction,
         }),
       ],
     };

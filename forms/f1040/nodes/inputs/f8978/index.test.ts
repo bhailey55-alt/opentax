@@ -1,236 +1,200 @@
 import { assertEquals, assertThrows } from "@std/assert";
-import { f8978 } from "./index.ts";
-import { fieldsOf } from "../../../../../core/test-utils/output.ts";
-import { schedule2 } from "../../intermediate/aggregation/schedule2/index.ts";
+import { f8978, type Form8978Input, Form8978Source } from "./index.ts";
+import { income_tax_calculation } from "../../intermediate/worksheets/income_tax_calculation/index.ts";
+
+function filing(
+  originalTaxLiability = 1_000,
+  correctedIncomeTax = 1_500,
+): Form8978Input["filings"][number] {
+  return {
+    source: Form8978Source.BbaAudit,
+    columns: [{
+      tax_year_end: "2022-12-31",
+      original_income: 20_000,
+      income_adjustments: [{ description: "Form 8986 income", amount: 2_000 }],
+      original_deductions: 5_000,
+      deduction_adjustments: [],
+      corrected_income_tax: correctedIncomeTax,
+      corrected_amt: 0,
+      original_credits: 0,
+      credit_adjustments: [],
+      original_tax_liability: originalTaxLiability,
+      tax_calculation_explanation:
+        "Recomputed using the affected-year return and rules.",
+    }],
+  };
+}
 
 function compute(input: Parameters<typeof f8978.compute>[1]) {
   return f8978.compute({ taxYear: 2025, formType: "f1040" }, input);
 }
 
-function findOutput(result: ReturnType<typeof compute>, nodeType: string) {
-  return result.outputs.find((o) => o.nodeType === nodeType);
-}
-
-// =============================================================================
-// 1. Input Schema Validation
-// =============================================================================
-
-Deno.test("f8978.inputSchema: valid minimal input passes", () => {
-  const parsed = f8978.inputSchema.safeParse({
-    reviewed_tax_year: 2022,
-    positive_adjustments_share: 50_000,
-  });
-  assertEquals(parsed.success, true);
+Deno.test("f8978 routes the positive tax-liability difference to line 16 calculation", () => {
+  const result = compute({ filings: [filing()] });
+  const form = result.outputs.find((output) => output.nodeType === "f8978");
+  const tax = result.outputs.find((output) =>
+    output.nodeType === income_tax_calculation.nodeType
+  );
+  assertEquals(form?.fields.line14, 500);
+  assertEquals(tax?.fields.form8978_tax, 500);
+  assertEquals(
+    result.outputs.some((output) => output.nodeType === "schedule2"),
+    false,
+  );
 });
 
-Deno.test("f8978.inputSchema: reviewed_tax_year required", () => {
-  const parsed = f8978.inputSchema.safeParse({
-    positive_adjustments_share: 50_000,
-  });
-  assertEquals(parsed.success, false);
+Deno.test("f8978 sums signed affected-year differences across filings", () => {
+  const result = compute({ filings: [filing(), filing(1_200, 900)] });
+  assertEquals(
+    result.outputs.find((output) => output.nodeType === "f8978")?.fields.line14,
+    200,
+  );
 });
 
-Deno.test("f8978.inputSchema: reviewed_tax_year below 2018 fails", () => {
-  const parsed = f8978.inputSchema.safeParse({
-    reviewed_tax_year: 2017,
-    positive_adjustments_share: 50_000,
-  });
-  assertEquals(parsed.success, false);
+Deno.test("f8978 does not invent a tax rate from an adjustment amount", () => {
+  const result = compute({ filings: [filing(1_500, 1_500)] });
+  assertEquals(
+    result.outputs.find((output) => output.nodeType === "f8978")?.fields.line14,
+    0,
+  );
+  assertEquals(
+    result.outputs.some((output) =>
+      output.nodeType === income_tax_calculation.nodeType
+    ),
+    false,
+  );
 });
 
-Deno.test("f8978.inputSchema: negative positive_adjustments_share fails", () => {
-  const parsed = f8978.inputSchema.safeParse({
-    reviewed_tax_year: 2022,
-    positive_adjustments_share: -1000,
-  });
-  assertEquals(parsed.success, false);
+Deno.test("f8978 sends negative line 14 to the reporting-year and AMT worksheets", () => {
+  const result = compute({ filings: [filing(1_500, 1_000)] });
+  assertEquals(
+    result.outputs.find((output) =>
+      output.nodeType === "form8978_reporting_year"
+    )
+      ?.fields.negative_form8978_line14,
+    500,
+  );
+  assertEquals(
+    result.outputs.find((output) => output.nodeType === "form6251")
+      ?.fields.form8978_negative_line14,
+    500,
+  );
+  assertEquals(
+    result.outputs.some((output) =>
+      output.nodeType === income_tax_calculation.nodeType
+    ),
+    false,
+  );
 });
 
-Deno.test("f8978.inputSchema: negative negative_adjustments_share fails", () => {
-  const parsed = f8978.inputSchema.safeParse({
-    reviewed_tax_year: 2022,
-    negative_adjustments_share: -500,
-  });
-  assertEquals(parsed.success, false);
+Deno.test("f8978 requires source adjustment detail and a prior affected year", () => {
+  const noRows = filing();
+  noRows.columns[0].income_adjustments = [];
+  assertThrows(
+    () => compute({ filings: [noRows] }),
+    Error,
+    "Schedule A adjustment rows",
+  );
+
+  const currentYear = filing();
+  currentYear.columns[0].tax_year_end = "2025-12-31";
+  assertThrows(
+    () => compute({ filings: [currentYear] }),
+    Error,
+    "precede the reporting year",
+  );
 });
 
-Deno.test("f8978.inputSchema: partner_tax_rate must be between 0 and 1", () => {
-  const parsed = f8978.inputSchema.safeParse({
-    reviewed_tax_year: 2022,
-    positive_adjustments_share: 50_000,
-    partner_tax_rate: 1.5,
-  });
-  assertEquals(parsed.success, false);
+Deno.test("f8978 schema limits each filing to four affected years", () => {
+  const one = filing();
+  assertEquals(
+    f8978.inputSchema.safeParse({
+      filings: [{ ...one, columns: Array(5).fill(one.columns[0]) }],
+    }).success,
+    false,
+  );
 });
 
-Deno.test("f8978.inputSchema: partner_tax_rate of 0 passes", () => {
-  const parsed = f8978.inputSchema.safeParse({
-    reviewed_tax_year: 2022,
-    positive_adjustments_share: 50_000,
-    partner_tax_rate: 0,
-  });
-  assertEquals(parsed.success, true);
+Deno.test("f8978 uses explicitly recomputed taxable income and tax liability", () => {
+  const adjusted = filing();
+  adjusted.columns[0].corrected_taxable_income = 14_500;
+  adjusted.columns[0].corrected_taxable_income_explanation =
+    "A prior-year tax attribute changes line 5 beyond lines 2 less 4.";
+  adjusted.columns[0].corrected_income_tax_liability = 1_650;
+  adjusted.columns[0].corrected_income_tax_liability_explanation =
+    "An affected-year liability adjustment not shown on lines 8 or 10 adds $150.";
+  const result = compute({ filings: [adjusted] });
+  const computed = result.outputs.find((output) => output.nodeType === "f8978")
+    ?.fields.calculated_filings as Array<
+      { years: Array<{ line5: number; line11: number }> }
+    >;
+  assertEquals(computed[0].years[0].line5, 14_500);
+  assertEquals(computed[0].years[0].line11, 1_650);
+  assertEquals(
+    result.outputs.find((output) => output.nodeType === "f8978")?.fields.line14,
+    650,
+  );
 });
 
-Deno.test("f8978.inputSchema: valid full input passes", () => {
-  const parsed = f8978.inputSchema.safeParse({
-    reviewed_tax_year: 2022,
-    positive_adjustments_share: 100_000,
-    negative_adjustments_share: 10_000,
-    partner_tax_rate: 0.35,
-    intervening_year_adjustments: -2_000,
-  });
-  assertEquals(parsed.success, true);
+Deno.test("f8978 requires separate statements for nonarithmetic lines 5 and 11", () => {
+  const adjusted = filing();
+  adjusted.columns[0].corrected_taxable_income = 14_500;
+  assertThrows(
+    () => compute({ filings: [adjusted] }),
+    Error,
+    "line 5 adjustment needs its separate calculation statement",
+  );
+  adjusted.columns[0].corrected_taxable_income_explanation =
+    "A prior-year tax attribute changes taxable income.";
+  adjusted.columns[0].corrected_income_tax_liability = 1_650;
+  assertThrows(
+    () => compute({ filings: [adjusted] }),
+    Error,
+    "line 11 adjustment needs its separate calculation statement",
+  );
+  adjusted.columns[0].corrected_income_tax_liability_explanation =
+    "A separate affected-year tax item changes liability.";
+  assertEquals(
+    compute({ filings: [adjusted] }).outputs.find((output) =>
+      output.nodeType === "f8978"
+    )?.fields.line14,
+    650,
+  );
 });
 
-// =============================================================================
-// 2. Calculation — Basic Tax
-// =============================================================================
-
-Deno.test("f8978.compute: basic additional tax = positive_adjustments × default rate (0.37)", () => {
-  const result = compute({ reviewed_tax_year: 2022, positive_adjustments_share: 100_000 });
-  const fields = fieldsOf(result.outputs, schedule2)!;
-  // 100,000 × 0.37 = 37,000
-  assertEquals(fields.line17z_other_additional_taxes, 37_000);
+Deno.test("f8978 requires explanations for penalties and interest", () => {
+  const withPenalty = filing();
+  withPenalty.columns[0].penalty = 10;
+  assertEquals(
+    f8978.inputSchema.safeParse({ filings: [withPenalty] }).success,
+    false,
+  );
+  withPenalty.columns[0].penalty_calculation_explanation =
+    "Affected-year penalty calculation.";
+  withPenalty.columns[0].interest = 20;
+  assertEquals(
+    f8978.inputSchema.safeParse({ filings: [withPenalty] }).success,
+    false,
+  );
+  withPenalty.columns[0].interest_calculation_explanation =
+    "Affected-year interest calculation.";
+  assertEquals(
+    f8978.inputSchema.safeParse({ filings: [withPenalty] }).success,
+    true,
+  );
 });
 
-Deno.test("f8978.compute: uses explicit partner_tax_rate when provided", () => {
-  const result = compute({
-    reviewed_tax_year: 2022,
-    positive_adjustments_share: 100_000,
-    partner_tax_rate: 0.24,
-  });
-  const fields = fieldsOf(result.outputs, schedule2)!;
-  // 100,000 × 0.24 = 24,000
-  assertEquals(fields.line17z_other_additional_taxes, 24_000);
-});
-
-Deno.test("f8978.compute: negative_adjustments reduce tax", () => {
-  // positive: 100,000 × 0.37 = 37,000
-  // negative: 20,000 × 0.37 = 7,400
-  // net: 37,000 - 7,400 = 29,600
-  const result = compute({
-    reviewed_tax_year: 2022,
-    positive_adjustments_share: 100_000,
-    negative_adjustments_share: 20_000,
-    partner_tax_rate: 0.37,
-  });
-  const fields = fieldsOf(result.outputs, schedule2)!;
-  assertEquals(fields.line17z_other_additional_taxes, 29_600);
-});
-
-Deno.test("f8978.compute: intervening_year_adjustments reduce total tax", () => {
-  // positive: 100,000 × 0.37 = 37,000
-  // intervening: -5,000
-  // net: 37,000 - 5,000 = 32,000
-  const result = compute({
-    reviewed_tax_year: 2022,
-    positive_adjustments_share: 100_000,
-    partner_tax_rate: 0.37,
-    intervening_year_adjustments: -5_000,
-  });
-  const fields = fieldsOf(result.outputs, schedule2)!;
-  assertEquals(fields.line17z_other_additional_taxes, 32_000);
-});
-
-Deno.test("f8978.compute: intervening_year_adjustments can be positive (increase tax)", () => {
-  // positive: 50,000 × 0.37 = 18,500
-  // intervening: +2,000
-  // net: 18,500 + 2,000 = 20,500
-  const result = compute({
-    reviewed_tax_year: 2022,
-    positive_adjustments_share: 50_000,
-    partner_tax_rate: 0.37,
-    intervening_year_adjustments: 2_000,
-  });
-  const fields = fieldsOf(result.outputs, schedule2)!;
-  assertEquals(fields.line17z_other_additional_taxes, 20_500);
-});
-
-// =============================================================================
-// 3. Floors and Edge Cases
-// =============================================================================
-
-Deno.test("f8978.compute: negative adjustments exceed positive — floors at zero, no output", () => {
-  // negative > positive → net would be negative → floor at 0
-  const result = compute({
-    reviewed_tax_year: 2022,
-    positive_adjustments_share: 10_000,
-    negative_adjustments_share: 50_000,
-    partner_tax_rate: 0.37,
-  });
-  assertEquals(result.outputs.length, 0);
-});
-
-Deno.test("f8978.compute: zero positive_adjustments — no output", () => {
-  const result = compute({
-    reviewed_tax_year: 2022,
-    positive_adjustments_share: 0,
-  });
-  assertEquals(result.outputs.length, 0);
-});
-
-Deno.test("f8978.compute: no adjustments at all — no output", () => {
-  const result = compute({
-    reviewed_tax_year: 2022,
-  });
-  assertEquals(result.outputs.length, 0);
-});
-
-Deno.test("f8978.compute: intervening adjustments drive total negative — floors at zero, no output", () => {
-  const result = compute({
-    reviewed_tax_year: 2022,
-    positive_adjustments_share: 10_000,
-    partner_tax_rate: 0.37,
-    intervening_year_adjustments: -100_000,
-  });
-  assertEquals(result.outputs.length, 0);
-});
-
-// =============================================================================
-// 4. Output Routing
-// =============================================================================
-
-Deno.test("f8978.compute: routes to schedule2 line17z_other_additional_taxes", () => {
-  const result = compute({ reviewed_tax_year: 2022, positive_adjustments_share: 50_000 });
-  // 50,000 × 0.37 = 18,500
-  const fields = fieldsOf(result.outputs, schedule2)!;
-  assertEquals(fields.line17z_other_additional_taxes, 18_500);
-});
-
-Deno.test("f8978.compute: only one output", () => {
-  const result = compute({ reviewed_tax_year: 2022, positive_adjustments_share: 50_000 });
-  assertEquals(result.outputs.length, 1);
-});
-
-// =============================================================================
-// 5. Reviewed Year Validation
-// =============================================================================
-
-Deno.test("f8978.compute: throws if reviewed_tax_year < 2018", () => {
-  assertThrows(() => compute({ reviewed_tax_year: 2015, positive_adjustments_share: 50_000 }), Error);
-});
-
-Deno.test("f8978.compute: reviewed_tax_year 2018 is valid", () => {
-  const result = compute({ reviewed_tax_year: 2018, positive_adjustments_share: 50_000 });
-  assertEquals(result.outputs.length, 1);
-});
-
-// =============================================================================
-// 6. Smoke Test
-// =============================================================================
-
-Deno.test("f8978.compute: smoke test — full input with all fields", () => {
-  const result = compute({
-    reviewed_tax_year: 2021,
-    positive_adjustments_share: 200_000,
-    negative_adjustments_share: 30_000,
-    partner_tax_rate: 0.35,
-    intervening_year_adjustments: -5_000,
-  });
-  // positive_tax = 200,000 × 0.35 = 70,000
-  // negative_effect = 30,000 × 0.35 = 10,500
-  // net = 70,000 - 10,500 - 5,000 = 54,500
-  const fields = fieldsOf(result.outputs, schedule2)!;
-  assertEquals(fields.line17z_other_additional_taxes, 54_500);
+Deno.test("f8978 orders AAR forms before BBA audit forms", () => {
+  const aar = filing();
+  aar.source = Form8978Source.Aar;
+  assertThrows(
+    () => compute({ filings: [filing(), aar] }),
+    Error,
+    "AAR filings must precede BBA audit filings",
+  );
+  const result = compute({ filings: [aar, filing()] });
+  assertEquals(
+    result.outputs.find((output) => output.nodeType === "f8978")?.fields.line14,
+    1_000,
+  );
 });

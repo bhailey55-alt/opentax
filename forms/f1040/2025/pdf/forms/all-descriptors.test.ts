@@ -3,23 +3,41 @@
  *
  * These tests verify that each descriptor:
  *   1. Has a non-empty pendingKey string.
- *   2. Has a pdfUrl pinned to the 2025 revision, or the latest applicable
- *      revision where the IRS has not issued a 2025 form.
- *   3. Has non-empty fields OR a rows descriptor.
+ *   2. Uses the archived applicable IRS revision, except Form 8911 Schedule A
+ *      while its December 2025 PDF has no archive URL.
+ *   3. Has renderable fields or an explicit guard that rejects positive input.
  *   4. Every field entry has a valid kind ("text" | "checkbox" | "radio").
  *   5. Every field entry has non-empty domainKey and pdfField.
- *   6. Computed field pdfField paths are fully qualified AcroForm paths.
- *   7. No duplicate domainKeys within fields of a single form.
+ *   6. Mapped pdfField paths are fully qualified AcroForm paths.
+ *   7. No exact duplicate field mappings within a form.
  *   8. Row descriptors have {row} placeholder in pdfFieldPattern.
  *
- * Network existence tests (require --allow-net=www.irs.gov) are marked
- * ignore: true until all descriptors are reconciled — remove ignore to enable.
+ * Network existence tests require --allow-net=www.irs.gov and validate the
+ * mapped fields against the referenced IRS PDFs.
  */
 import { assertEquals, assertMatch } from "@std/assert";
 import { PDFDocument } from "pdf-lib";
 import { ALL_PDF_FORMS } from "./index.ts";
 
 const VALID_KINDS = new Set(["text", "checkbox", "checkboxWhen", "radio"]);
+const ARCHIVED_REVISIONS: Readonly<Record<string, number>> = {
+  f1040lep: 2024,
+  f7203: 2022,
+  f1116sb: 2022,
+  f2439: 2021,
+  f5884: 2021,
+  f7217: 2024,
+  f8820: 2018,
+  f8874: 2021,
+  f8912: 2024,
+  f8978: 2023,
+  f8978sa: 2023,
+  f8995ab: 2022,
+  f8995ac: 2022,
+  f8995ad: 2022,
+  f982: 2018,
+  f8834: 2024,
+};
 
 for (const descriptor of ALL_PDF_FORMS) {
   const label = descriptor.pendingKey;
@@ -29,55 +47,94 @@ for (const descriptor of ALL_PDF_FORMS) {
     assertEquals(descriptor.pendingKey.length > 0, true);
   });
 
-  Deno.test(`${label}: pdfUrl is pinned to the applicable IRS revision`, () => {
-    const revision = label === "form982" ? "2018" : "2025";
+  Deno.test(`${label}: pdfUrl uses the applicable IRS revision`, () => {
+    if (label === "f8911_schedule_a") {
+      // The December 2025 PDF is current; IRS has no 2025 archive URL yet.
+      assertEquals(
+        descriptor.pdfUrl,
+        "https://www.irs.gov/pub/irs-pdf/f8911sa.pdf",
+      );
+      return;
+    }
+    const formName = descriptor.pdfUrl.match(/\/([^/]+)--\d{4}\.pdf$/)?.[1];
+    const revision = formName ? ARCHIVED_REVISIONS[formName] ?? 2025 : 2025;
     assertMatch(
       descriptor.pdfUrl,
-      new RegExp(`^https://www\\.irs\\.gov/pub/irs-prior/.+--${revision}\\.pdf$`),
+      new RegExp(
+        `^https://www\\.irs\\.gov/pub/irs-prior/.+--${revision}\\.pdf$`,
+      ),
       `Expected IRS PDF URL, got: ${descriptor.pdfUrl}`,
     );
   });
 
-  Deno.test(`${label}: has fields or rows`, () => {
+  Deno.test(`${label}: has fields or rows or rejects positive input`, () => {
     const hasFields = descriptor.fields.length > 0;
-    const hasRows = descriptor.rows !== undefined && descriptor.rows.rowFields.length > 0;
-    assertEquals(hasFields || hasRows, true, `${label} has no fields and no rows`);
+    const hasRows = descriptor.rows !== undefined &&
+      descriptor.rows.rowFields.length > 0;
+    if (!hasFields && !hasRows) {
+      assertEquals(
+        typeof descriptor.projectFields,
+        "function",
+        `${label} has no renderable fields and no export guard`,
+      );
+      let rejected = false;
+      try {
+        descriptor.projectFields?.({ positive_filing_probe: 1 }, {});
+      } catch {
+        rejected = true;
+      }
+      assertEquals(rejected, true, `${label} did not reject positive input`);
+      return;
+    }
+    assertEquals(
+      hasFields || hasRows,
+      true,
+      `${label} has no fields and no rows`,
+    );
   });
 
   Deno.test(`${label}: all field entries have valid kind`, () => {
-    for (const entry of [...descriptor.fields, ...(descriptor.filerFields ?? [])]) {
+    for (
+      const entry of [...descriptor.fields, ...(descriptor.filerFields ?? [])]
+    ) {
       assertEquals(
         VALID_KINDS.has(entry.kind),
         true,
         `Invalid kind "${entry.kind}" in ${label}`,
       );
-      assertEquals(entry.domainKey.length > 0, true, `Empty domainKey in ${label}`);
-      assertEquals(entry.pdfField.length > 0, true, `Empty pdfField in ${label}`);
+      assertEquals(
+        entry.domainKey.length > 0,
+        true,
+        `Empty domainKey in ${label}`,
+      );
+      assertEquals(
+        entry.pdfField.length > 0,
+        true,
+        `Empty pdfField in ${label}`,
+      );
     }
   });
 
-  Deno.test(`${label}: computed field pdfField paths are fully qualified AcroForm paths`, () => {
+  Deno.test(`${label}: mapped field paths are fully qualified AcroForm paths`, () => {
     for (const entry of descriptor.fields) {
       assertMatch(
         entry.pdfField,
-        /^(topmostSubform|form\d+)\[0\]\.(Page\d+|Page1)\[0\]\./,
+        /^[A-Za-z][A-Za-z0-9]*\[0\]\.[A-Za-z][A-Za-z0-9]*\[0\]\./,
         `Not a fully qualified AcroForm path in ${label}: ${entry.pdfField}`,
       );
     }
   });
 
-  Deno.test(`${label}: no duplicate domainKeys in fields`, () => {
+  Deno.test(`${label}: no exact duplicate field mappings`, () => {
     const seen = new Set<string>();
     for (const entry of descriptor.fields) {
-      // checkboxWhen entries intentionally share a domainKey (e.g. filing_status
-      // maps to multiple checkboxes); skip duplicate check for them.
-      if (entry.kind === "checkboxWhen") continue;
+      const mapping = `${entry.kind}:${entry.domainKey}:${entry.pdfField}`;
       assertEquals(
-        seen.has(entry.domainKey),
+        seen.has(mapping),
         false,
-        `Duplicate domainKey "${entry.domainKey}" in ${label}`,
+        `Duplicate field mapping "${mapping}" in ${label}`,
       );
-      seen.add(entry.domainKey);
+      seen.add(mapping);
     }
   });
 
@@ -96,7 +153,7 @@ for (const descriptor of ALL_PDF_FORMS) {
 
 // ---------------------------------------------------------------------------
 // Field existence tests (network — verifies real IRS PDF field names)
-// Remove `ignore: true` after all descriptors are verified against real PDFs.
+// These checks must run in the normal batch so stale mappings cannot pass.
 // ---------------------------------------------------------------------------
 
 async function getRealFieldNames(url: string): Promise<Set<string>> {
@@ -113,13 +170,14 @@ for (const descriptor of ALL_PDF_FORMS) {
   Deno.test(
     {
       name: `${label}: all mapped pdfField names exist in real IRS PDF`,
-      ignore: true,
       sanitizeResources: false,
       sanitizeOps: false,
     },
     async () => {
       const realFields = await getRealFieldNames(descriptor.pdfUrl);
-      for (const entry of [...descriptor.fields, ...(descriptor.filerFields ?? [])]) {
+      for (
+        const entry of [...descriptor.fields, ...(descriptor.filerFields ?? [])]
+      ) {
         assertEquals(
           realFields.has(entry.pdfField),
           true,
@@ -127,13 +185,21 @@ for (const descriptor of ALL_PDF_FORMS) {
         );
       }
       if (descriptor.rows) {
-        for (const rf of descriptor.rows.rowFields) {
-          const firstRowField = rf.pdfFieldPattern.replace("{row}", "1").replace(/{field_num}/g, String((rf as { fieldNumBase?: number }).fieldNumBase ?? 1).padStart(2, "0"));
-          assertEquals(
-            realFields.has(firstRowField),
-            true,
-            `[${label}] row field (row 1) not found in real PDF: "${firstRowField}"`,
-          );
+        for (let row = 1; row <= descriptor.rows.maxRows; row++) {
+          for (const rf of descriptor.rows.rowFields) {
+            const fieldNumber = (rf.fieldNumBase ?? 1) +
+              (row - 1) * (descriptor.rows.rowStride ?? 0);
+            const pdfField = rf.pdfFieldPattern.replace("{row}", String(row))
+              .replace(
+                /{field_num}/g,
+                String(fieldNumber).padStart(2, "0"),
+              );
+            assertEquals(
+              realFields.has(pdfField),
+              true,
+              `[${label}] row field (row ${row}) not found in real PDF: "${pdfField}"`,
+            );
+          }
         }
       }
     },

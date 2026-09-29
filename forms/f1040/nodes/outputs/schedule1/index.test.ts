@@ -1,4 +1,4 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertThrows } from "@std/assert";
 import { schedule1 } from "./index.ts";
 
 const ctx = {} as Parameters<typeof schedule1.compute>[0];
@@ -9,7 +9,9 @@ function compute(input: Parameters<typeof schedule1.compute>[1]) {
   return schedule1.compute(ctx, input);
 }
 
-function fields(input: Parameters<typeof schedule1.compute>[1]): Record<string, unknown> {
+function fields(
+  input: Parameters<typeof schedule1.compute>[1],
+): Record<string, unknown> {
   const result = compute(input);
   return result.outputs[0].fields as Record<string, unknown>;
 }
@@ -65,6 +67,22 @@ Deno.test("schedule1: rental income from schedule E included", () => {
   assertEquals(f.line10_total_additional_income, 12_000);
 });
 
+Deno.test("schedule1: Schedule E and allowed passive loss share printed line 5", () => {
+  const f = fields({ line5_schedule_e: [12_000, -5_000] });
+  assertEquals(f.line5_schedule_e, 7_000);
+  assertEquals(f.line10_total_additional_income, 7_000);
+});
+
+Deno.test("schedule1: S-corporation basis disallowance changes printed line 5, not other income", () => {
+  const f = fields({
+    line5_schedule_e: -4_000,
+    basis_disallowed_add_back: 1_000,
+  });
+  assertEquals(f.line5_schedule_e, -3_000);
+  assertEquals(f.line10_total_additional_income, -3_000);
+  assertEquals(f.line9_total_other_income, undefined);
+});
+
 Deno.test("schedule1: farm income from schedule F included", () => {
   const f = fields({ line6_schedule_f: 8_000 });
   assertEquals(f.line10_total_additional_income, 8_000);
@@ -85,6 +103,22 @@ Deno.test("schedule1: cancellation of debt income in line 8c", () => {
   assertEquals(f.line10_total_additional_income, 2_500);
 });
 
+Deno.test("schedule1: taxable Form 8889 amounts enter line 8f and total income", () => {
+  const f = fields({ line8f_hsa_income: 1100 });
+  assertEquals(f.line8f_hsa_income, 1100);
+  assertEquals(f.line10_total_additional_income, 1100);
+});
+
+Deno.test("schedule1: HSA excess-withdrawal earnings enter line 8z total", () => {
+  const f = fields({ line8z_hsa_excess_earnings: 100 });
+  assertEquals(f.line10_total_additional_income, 100);
+});
+
+Deno.test("schedule1: employer HSA excess not in W-2 enters line 8z total", () => {
+  const f = fields({ line8z_hsa_excess_employer: 700 });
+  assertEquals(f.line10_total_additional_income, 700);
+});
+
 Deno.test("schedule1: foreign earned income exclusion offsets income", () => {
   const f = fields({
     line3_schedule_c: 50_000,
@@ -93,9 +127,11 @@ Deno.test("schedule1: foreign earned income exclusion offsets income", () => {
   assertEquals(f.line10_total_additional_income, 10_000);
 });
 
-Deno.test("schedule1: savings bond exclusion offsets income", () => {
-  const f = fields({ line8b_savings_bond_exclusion: 500 });
-  assertEquals(f.line10_total_additional_income, -500);
+Deno.test("schedule1: gambling winnings fill line 8b and income totals", () => {
+  const f = fields({ line8b_gambling_winnings: 500 });
+  assertEquals(f.line8b_gambling_winnings, 500);
+  assertEquals(f.line9_total_other_income, 500);
+  assertEquals(f.line10_total_additional_income, 500);
 });
 
 Deno.test("schedule1: at_risk_disallowed_add_back adds to income", () => {
@@ -104,6 +140,12 @@ Deno.test("schedule1: at_risk_disallowed_add_back adds to income", () => {
 });
 
 // ─── Part II — Adjustments ────────────────────────────────────────────────────
+
+Deno.test("schedule1: Form 2106 business expense stays on finalized line 12 and line 26", () => {
+  const f = fields({ line12_business_expenses: 1_200 });
+  assertEquals(f.line12_business_expenses, 1_200);
+  assertEquals(f.line26_total_adjustments, 1_200);
+});
 
 Deno.test("schedule1: HSA deduction included in adjustments", () => {
   const f = fields({ line13_hsa_deduction: 3_850 });
@@ -126,7 +168,7 @@ Deno.test("schedule1: self-employed health insurance deduction included", () => 
 });
 
 Deno.test("schedule1: student loan interest deduction included", () => {
-  const f = fields({ line19_student_loan_interest: 2_500 });
+  const f = fields({ line21_student_loan_interest: 2_500 });
   assertEquals(f.line26_total_adjustments, 2_500);
 });
 
@@ -172,6 +214,40 @@ Deno.test("schedule1: multiple line 8z items aggregated", () => {
     line8z_golden_parachute: 5_000,
   });
   assertEquals(f.line10_total_additional_income, 16_500);
+});
+
+Deno.test("schedule1: finalized detail lines reconcile to Part I and II totals", () => {
+  const f = fields({
+    line8c_cod_income: 700,
+    line8z_rtaa: 300,
+    line8z_nqdc: 400,
+    line11_educator_expenses: 250,
+    line16_sep_simple: 1_000,
+    line21_student_loan_interest: 200,
+  });
+  assertEquals(f.line8c_cod_income, 700);
+  assertEquals(f.line8z_rtaa, 300);
+  assertEquals(f.line8z_nqdc, 400);
+  assertEquals(f.line9_total_other_income, 1_400);
+  assertEquals(f.line10_total_additional_income, 1_400);
+  assertEquals(f.line11_educator_expenses, 250);
+  assertEquals(f.line16_sep_simple, 1_000);
+  assertEquals(f.line21_student_loan_interest, 200);
+  assertEquals(f.line26_total_adjustments, 1_450);
+});
+
+Deno.test("schedule1: legacy fields with no valid 2025 line stop finalization", () => {
+  for (
+    const input of [
+      { line2a_alimony_received: 100 },
+      { line8g_child_interest_dividends: 100 },
+      { line8z_attorney_proceeds: 100 },
+      { line13_depreciation: 100 },
+      { line24h_dpad: 100 },
+    ]
+  ) {
+    assertThrows(() => compute(input));
+  }
 });
 
 Deno.test("schedule1: early withdrawal penalty in adjustments", () => {

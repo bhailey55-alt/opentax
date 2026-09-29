@@ -3,7 +3,10 @@ import { form8960, inputSchema } from "./index.ts";
 import { FilingStatus } from "../../../types.ts";
 
 function compute(input: Record<string, unknown>) {
-  return form8960.compute({ taxYear: 2025, formType: "f1040" }, inputSchema.parse(input));
+  return form8960.compute(
+    { taxYear: 2025, formType: "f1040" },
+    inputSchema.parse(input),
+  );
 }
 
 function findOutput(result: ReturnType<typeof compute>, nodeType: string) {
@@ -44,6 +47,19 @@ Deno.test("NII < MAGI excess → NIIT = NII × 3.8%", () => {
   });
   const sch2 = findOutput(result, "schedule2");
   assertEquals(sch2?.fields.line12_niit, 380);
+});
+
+Deno.test("Form 8960 includes Form 8814 line 12 investment income on line 7", () => {
+  const result = compute({
+    filing_status: FilingStatus.Single,
+    magi: 300_000,
+    form8814_line12_investment_income: 2_200,
+  });
+  assertEquals(
+    findOutput(result, "form8960")?.fields.line7_other_modifications,
+    2_200,
+  );
+  assertEquals(findOutput(result, "schedule2")?.fields.line12_niit, 83.6);
 });
 
 // ─── MAGI excess is the smaller factor ────────────────────────────────────────
@@ -217,25 +233,31 @@ Deno.test("line10 additional modifications reduces NII", () => {
   assertEquals(sch2?.fields.line12_niit, 570);
 });
 
-Deno.test("deductions exceeding NII gross → NII = 0, no output", () => {
-  // NII gross=5k; deductions=10k; NII=max(0,...)=0 → no output
+Deno.test("deductions exceeding NII gross → Form 8960 with zero tax above threshold", () => {
+  // NII gross=5k; deductions=10k; NII=max(0,...)=0
   const result = compute({
     filing_status: FilingStatus.Single,
     magi: 300_000,
     line1_taxable_interest: 5_000,
     line9a_investment_interest_expense: 10_000,
   });
-  assertEquals(result.outputs.length, 0);
+  assertEquals(result.outputs.map((output) => output.nodeType), ["form8960"]);
+  assertEquals(
+    findOutput(result, "form8960")?.fields.line12_net_investment_income,
+    0,
+  );
+  assertEquals(findOutput(result, "form8960")?.fields.line17_niit, 0);
 });
 
 // ─── Zero NII ──────────────────────────────────────────────────────────────────
 
-Deno.test("zero NII (no income fields) → no output even with MAGI above threshold", () => {
+Deno.test("zero NII above threshold → Form 8960 without Schedule 2 NIIT", () => {
   const result = compute({
     filing_status: FilingStatus.Single,
     magi: 500_000,
   });
-  assertEquals(result.outputs.length, 0);
+  assertEquals(result.outputs.map((output) => output.nodeType), ["form8960"]);
+  assertEquals(findOutput(result, "form8960")?.fields.line17_niit, 0);
 });
 
 // ─── Output routing ────────────────────────────────────────────────────────────
@@ -328,13 +350,11 @@ Deno.test("missing magi throws", () => {
   });
 });
 
-Deno.test("negative magi throws", () => {
-  assertThrows(() => {
-    compute({
-      filing_status: FilingStatus.Single,
-      magi: -1,
-    });
-  });
+Deno.test("negative MAGI is accepted and incurs no NIIT", () => {
+  assertEquals(
+    compute({ filing_status: FilingStatus.Single, magi: -1 }).outputs.length,
+    0,
+  );
 });
 
 // ─── Smoke test ────────────────────────────────────────────────────────────────

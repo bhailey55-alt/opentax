@@ -1,44 +1,46 @@
-import { assertEquals } from "@std/assert";
-import { self_employed_health_insurance } from "./index.ts";
+import { assertEquals, assertThrows } from "@std/assert";
+import { inputSchema, self_employed_health_insurance } from "./index.ts";
 
 const ctx = { taxYear: 2025, formType: "f1040" };
 
 function compute(items: { premiums_paid: number }[]) {
-  return self_employed_health_insurance.compute(ctx, { items });
+  return self_employed_health_insurance.compute(ctx, {
+    items,
+    marketplace_ptc_premium_overlap: false,
+  });
 }
 
-Deno.test("routes premiums_paid to schedule1 line17_se_health_insurance", () => {
-  const result = compute([{ premiums_paid: 1_000 }]);
-  const s1 = result.outputs.find((o) => o.nodeType === "schedule1");
-  assertEquals(s1?.fields.line17_se_health_insurance, 1_000);
+Deno.test("requires explicit Marketplace overlap review before routing", () => {
+  assertThrows(
+    () => inputSchema.parse({ items: [{ premiums_paid: 1_000 }] }),
+    Error,
+    "marketplace_ptc_premium_overlap",
+  );
+  assertThrows(
+    () =>
+      self_employed_health_insurance.compute(ctx, {
+        items: [{ premiums_paid: 1_000 }],
+        marketplace_ptc_premium_overlap: true,
+      }),
+    Error,
+    "requires Publication 974 deduction calculation",
+  );
 });
 
-Deno.test("routes premiums_paid to agi_aggregator line17_se_health_insurance", () => {
-  const result = compute([{ premiums_paid: 1_000 }]);
-  const agi = result.outputs.find((o) => o.nodeType === "agi_aggregator");
-  assertEquals(agi?.fields.line17_se_health_insurance, 1_000);
-});
-
-Deno.test("sums multiple items", () => {
-  const result = compute([{ premiums_paid: 3_000 }, { premiums_paid: 2_000 }]);
-  const s1 = result.outputs.find((o) => o.nodeType === "schedule1");
-  assertEquals(s1?.fields.line17_se_health_insurance, 5_000);
+Deno.test("premium-only claims cannot bypass the Form 7206 business limit", () => {
+  assertThrows(
+    () => compute([{ premiums_paid: 1_000 }]),
+    Error,
+    "identified Form 7206 plan",
+  );
+  assertThrows(
+    () => compute([{ premiums_paid: 3_000 }, { premiums_paid: 2_000 }]),
+    Error,
+    "identified Form 7206 plan",
+  );
 });
 
 Deno.test("returns empty outputs when premiums_paid is zero", () => {
   const result = compute([{ premiums_paid: 0 }]);
   assertEquals(result.outputs.length, 0);
-});
-
-Deno.test("routes premiums_paid to form8995 as se_health_insurance_deduction", () => {
-  // i8995, Determining Your Qualified Business Income: the items attributable to the
-  // trade or business include the "self-employment health insurance deduction".
-  const result = compute([{ premiums_paid: 1_000 }]);
-  const qbi = result.outputs.find((o) => o.nodeType === "form8995");
-  assertEquals(qbi?.fields.se_health_insurance_deduction, 1_000);
-});
-
-Deno.test("returns three outputs (schedule1, agi_aggregator and form8995) for nonzero premiums", () => {
-  const result = compute([{ premiums_paid: 500 }]);
-  assertEquals(result.outputs.length, 3);
 });

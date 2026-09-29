@@ -1,256 +1,124 @@
-# Form 5884 — Work Opportunity Credit
+# Form 5884: work opportunity credit, TY2025 build status
 
-## Overview
+The employer's credit is calculated from one employee row at a time. The credit
+belongs on Form 3800 Part III line 4b, then on Schedule 3 line 6a only after the
+Form 3800 tax-liability limit. The current build pass sends a classified Form
+5884 source credit to the shared nonpassive Form 3800 limit, with native
+`IRS5884` and linked `IRS3800` XML. These paths have cases written but unrun and
+are not yet a verified Form 1040 route. See
+[the business-credit routing audit](../../../../../../docs/mef/general-business-credit-routing.md).
 
-Form 5884 computes the Work Opportunity Tax Credit (WOTC) for employers who hire employees from one of ten federally designated target groups (TANF recipients, veterans, ex-felons, SNAP recipients, etc.). The credit is a percentage of qualified first-year wages (and second-year wages for long-term family assistance recipients), subject to wage caps that vary by target group.
+Sources: [IRS Form 5884](https://www.irs.gov/pub/irs-pdf/f5884.pdf),
+[IRS instructions](https://www.irs.gov/instructions/i5884), and
+[Form 3800 instructions](https://www.irs.gov/instructions/i3800).
 
-"Qualified wages" means wages (as defined in IRC §51(c)) paid or incurred by the employer to a qualified individual for services rendered in the employer's trade or business. Wages paid during the 1-year period beginning on the hire date count as first-year wages; for LTFA, wages from the 2nd year of employment also qualify.
+## Current source model
 
-The computed credit flows to Form 3800 (General Business Credit) and then to Schedule 3, Line 6z on the Form 1040. In the node architecture, the Form 3800 intermediate step is collapsed: this node outputs directly to `schedule3.line6z_general_business_credit`.
+Each `f5884s` row requires an employee record reference, a pre-2026 hire date, a
+state-workforce-agency certification reference, the targeted group, dated
+qualified-wage payroll records, hours worked, and affirmative checks for
+qualifying payroll, no prior employment, no related/dependent employee, more
+than half the wages for work in the trade or business, and exclusion of
+disallowed wages. Duplicate employee references are rejected. A summer-youth row
+additionally confirms the zone and service period; a
+designated-community-resident row confirms the qualifying work location.
 
-The WOTC is a non-refundable general business credit. It is subject to the passive activity rules and at-risk rules. Any unused credit may be carried back 1 year and forward 20 years via Form 3800.
+The certification is now a dated record of either SWA certification received by
+the first workday or timely Form 8850 prescreening, signatures, and submission.
+Each certification records whether a revocation notice was received. If it was
+revoked for false employee information, the source requires the notice date, an
+affirmation that later wages were excluded. Each claimed payroll row records its
+service start and end dates, its 2025 paid-or-incurred date, the qualified
+amount, and a retained payroll reference. Rows dated after notice are rejected.
+This is a source assertion; it is not yet independently reconciled to payroll
+documents. For successor employment, the first workday and Form 8850 deadline
+are measured from the predecessor's start, not the acquisition date. The
+successor record also requires the predecessor EIN, acquisition and
+continued-employment facts, prior qualified wages and hours, a still-valid
+certification, and confirmation that both wage periods start with the
+predecessor. The calculation combines hours, reduces each wage cap by the
+predecessor's qualified wages, and rejects payroll service before successor hire
+or after the applicable period. These cases are written but unrun.
 
-**IRS Form:** 5884
-**Drake Screen:** WOTC (Work Opportunity Credit — accessed via Credits menu)
-**Node Type:** input
-**Tax Year:** 2025
-**Drake Reference:** https://kb.drakesoftware.com/Site/Browse/14765
+Payroll rows are classified by service period against the first workday's
+anniversaries, which can precede TY2025 even though the wages are paid or
+incurred in TY2025. A row crossing the first-year anniversary must be split.
+Only LTFA can have second-year wages. Duplicate payroll references within an
+employee claim are rejected. The previous undated year-one and year-two wage
+totals are no longer accepted as input.
 
----
+Each claimed payroll row now identifies the Schedule C business or Schedule F
+farm whose gross payroll contains those wages. One employee may split payroll
+between these destinations. Form 5884 allocates its whole-dollar line 2 credit
+across the dated rows, passes the reduction to the business-profit graph, and
+reconciles the reduction in a full MeF bundle. Form 3800's current-year tax
+limit does not reduce this wage adjustment. Pass-through line 3 credit does not
+cause a wage reduction on the recipient's Schedule C or F. Controlled-group rows
+for other members may identify a separate entity return; the Form 1040 taxpayer
+member must identify Schedule C or F for its line 2 share. The
+business-location, graph, XML, and negative cases are written but unrun. When
+eligible wages exceed a first- or second-year cap across different locations,
+every payroll row in that year must now state its `credited_wages`. The row
+amounts must be nonnegative, no more than their qualified wages, and add to the
+remaining employee wage cap. Whole-dollar wage reductions are allocated by those
+claimed amounts rather than by all qualifying payroll. The allocation and
+rejection cases are written but unrun. Capitalized labor in inventory,
+capitalized asset costs, and wage deductions on business forms other than
+Schedules C and F still need separate, source-backed destinations and
+sold-versus-ending-basis allocation. The full MeF bundle also compares qualified
+payroll rows for each destination with its Schedule C line 26 gross wages or
+Schedule F line 22 gross labor hired. A destination whose gross wages are
+smaller than its assigned qualified payroll is rejected; this is not independent
+payroll-document matching.
 
-## Input Fields
+`pass_through_credits` separately identifies partnership, S corporation,
+cooperative, estate, and trust allocations by entity EIN, source document
+reference, amount, and passive-activity answer. Duplicate entity sources are
+rejected. A 1040 recipient with only pass-through credit reports Form 3800 line
+4b without their own Form 5884. If the recipient also earns credit from their
+own employees, Form 5884 line 3 combines the identified allocations with lines
+1a-1c; line 4 forwards the total. A partly limited multi-source claim requires
+explicit Form 3800 Part V applied amounts for each source.
 
-| Field | Type | Required | Source / Label | Description | IRS Reference | URL |
-| ----- | ---- | -------- | -------------- | ----------- | ------------- | --- |
-| `f5884s` | array of items | Yes | Array of employee credit entries | One entry per employee or employee group. Must have at least one item. | Form 5884, Lines 1a–1e | https://www.irs.gov/instructions/i5884 |
-| `f5884s[].target_group` | enum (TargetGroup) | Yes | Target group code (1–10) | Which of the ten statutory target groups the employee belongs to. | IRC §51(d) | https://www.irs.gov/instructions/i5884 |
-| `f5884s[].first_year_wages` | number ≥ 0 | Yes | Qualified first-year wages | Wages paid during the employee's first year of employment (starting on hire date). Subject to group-specific caps. | IRC §51(b)(1) | https://www.irs.gov/instructions/i5884 |
-| `f5884s[].second_year_wages` | number ≥ 0 | No | Qualified second-year wages | Only applicable to long-term family assistance (LTFA) recipients (Group 9). Wages from the 2nd year of employment, capped at $10,000. | IRC §51(e) | https://www.irs.gov/instructions/i5884 |
-| `f5884s[].hours_worked` | number ≥ 0 | No | Hours worked in first year | Determines which credit rate applies: <120 = no credit, 120–399 = 25%, ≥400 = 40%. Not used for LTFA group. Defaults to 0 if omitted (produces no credit). | IRC §51(i)(3) | https://www.irs.gov/instructions/i5884 |
-| `f5884s[].is_disabled_veteran` | boolean | No | Disabled veteran flag | If true and target_group is VeteranFoodStamp, applies $12,000 wage cap instead of $6,000. Service-connected disability; hired within 1 year of discharge. Overridden by is_disabled_veteran_long_term. | IRC §51(d)(3)(A)(ii) | https://www.irs.gov/instructions/i5884 |
-| `f5884s[].is_disabled_veteran_long_term` | boolean | No | Long-term disabled/unemployed veteran flag | If true, applies $14,000 wage cap. Covers disabled veterans discharged ≥6 months prior OR veterans unemployed ≥6 months. Takes precedence over is_disabled_veteran. | IRC §51(d)(3)(A)(iii)–(iv) | https://www.irs.gov/instructions/i5884 |
+For a controlled group or businesses under common control, `controlled_group`
+lists the member EINs and names and identifies the taxpayer member. Every
+employee row identifies its employer EIN, and a retained group-classification
+document reference is required. The group calculates the source credit once,
+then allocates the rounded line 2 amount by each member's share of capped
+qualified wages, with deterministic whole-dollar remainders. The taxpayer's
+share, not the gross group credit, goes to Form 3800. The MeF form links a
+native member-credit statement and an explanation with the wage and credit
+arithmetic. The PDF prints "See attached" by line 2 and appends the same
+calculation. These source, MeF, XSD, and PDF cases are written but unrun. An
+employee paid by more than one group member in the same wage period still needs
+a shared employee/payroll source model; the current distinct-employee rule
+rejects that situation. An entity-return location is not a substitute for
+reconciling the wages on that separate entity return.
 
-### TargetGroup Enum Values
+Veterans require one `VeteranCategory`, rather than independent flags:
 
-| Code | Name | IRS Label | Wage Cap (1st yr) | Notes |
-| ---- | ---- | --------- | ----------------- | ----- |
-| `"1"` | TanfRecipient | IV-A (TANF) recipients | $6,000 | Member of family receiving IV-A assistance for any 9 months of 18-month period ending on hiring date |
-| `"2"` | VeteranFoodStamp | Veterans (SNAP/food stamp) | $6,000 / $12,000 / $14,000 | Cap varies by is_disabled_veteran / is_disabled_veteran_long_term flags |
-| `"3"` | ExFelon | Ex-felons | $6,000 | Hired within 1 year of conviction or release from prison; low-income test also applies |
-| `"4"` | DesignatedCommunityResident | Designated community residents | $6,000 | Age 18–39, lives in empowerment zone or rural renewal county on hiring date |
-| `"5"` | VocationalRehabilitation | Vocational rehabilitation referrals | $6,000 | Referred by state vocational rehabilitation agency, Employment Network (Ticket to Work), or DVA program |
-| `"6"` | SummerYouth | Summer youth employees | $3,000 | Age 16–17, lives in empowerment zone, employed between May 1 and Sep 15 |
-| `"7"` | SnapRecipient | SNAP recipients | $6,000 | Age 18–39, receiving food stamps for 6 months (or 3 of 5 months) before hire date |
-| `"8"` | SsiRecipient | SSI recipients | $6,000 | Receiving SSI benefits for any month ending within 60 days before hire date |
-| `"9"` | LongTermFamilyAssistance | Long-term family assistance recipients | $10,000/yr (2 yrs) | Family receiving TANF for at least 18 consecutive months; 2-year credit window |
-| `"10"` | LongTermUnemployment | Long-term unemployment recipients | $6,000 | Certified as unemployed for ≥27 consecutive weeks before hire; received state/federal unemployment compensation |
+| Certified category                                    | First-year wage cap |
+| ----------------------------------------------------- | ------------------: |
+| SNAP recipient or short-term unemployed               |              $6,000 |
+| Service-connected disability, recently discharged     |             $12,000 |
+| Long-term unemployed                                  |             $14,000 |
+| Service-connected disability and long-term unemployed |             $24,000 |
 
----
+Other first-year wage caps are $3,000 for summer youth, $10,000 for long-term
+family assistance (LTFA), and $6,000 for other groups. Only LTFA may carry
+second-year wages, capped separately at $10,000. Fewer than 120 hours yields
+zero credit for every group, including LTFA. Other groups receive 25% of capped
+first-year wages at 120–399 hours and 40% at 400 or more. LTFA uses the same
+hours-based first-year rate and receives 50% of capped second-year wages after
+the 120-hour threshold.
 
-## Calculation Logic
-
-### Step 1 — Classify each employee entry
-For each entry in `f5884s`, determine the applicable wage cap and credit rate based on `target_group`, `hours_worked`, and veteran subcategory flags.
-
-### Step 2 — Apply wage cap
-Cap `first_year_wages` at the group-specific limit:
-- SummerYouth (Group 6): cap = $3,000
-- LongTermFamilyAssistance (Group 9): cap = $10,000 per year (applied separately to first and second year)
-- VeteranFoodStamp with `is_disabled_veteran_long_term = true`: cap = $14,000
-- VeteranFoodStamp with `is_disabled_veteran = true` (and long_term is false): cap = $12,000
-- All other groups: cap = $6,000
-
-### Step 3 — Determine credit rate
-
-For all groups EXCEPT LongTermFamilyAssistance (including SummerYouth):
-- `hours_worked < 120`: rate = 0% — no credit (IRC §51(i)(3))
-- `120 ≤ hours_worked < 400`: rate = 25% — Form 5884, Line 1b
-- `hours_worked ≥ 400`: rate = 40% — Form 5884, Line 1a
-
-Summer youth (Group 6) uses the same hours thresholds and rates as other standard groups,
-but their wages are reported on Form 5884, Line 1c (separate line to apply the $3,000 cap)
-rather than Line 1a or 1b. The rate logic is identical.
-
-For LongTermFamilyAssistance (IRC §51(e)) — hours NOT considered:
-- First year: 40% of wages capped at $10,000 → max credit $4,000 (Form 5884, Line 1d)
-- Second year: 50% of wages capped at $10,000 → max credit $5,000 (Form 5884, Line 1e)
-- `hours_worked` is ignored entirely for this group
-
-### Step 4 — Compute per-employee credit
-
-Standard groups (not LTFA):
-```
-employeeCredit = min(first_year_wages, wageCap) × rate
-```
-
-LTFA (Group 9):
-```
-employeeCredit = min(first_year_wages, 10000) × 0.40
-              + min(second_year_wages ?? 0, 10000) × 0.50
-```
-
-### Step 5 — Aggregate
-Sum all per-employee credits → `totalCredit` (equivalent to Form 5884, Line 2).
-
-Pass-through credits from partnerships/S corps/trusts (Form 5884, Line 3) are not modeled
-in this node. Those amounts arrive via K-1 input nodes.
-
-### Step 6 — Route to Schedule 3
-If `totalCredit > 0`, emit output to `schedule3.line6z_general_business_credit`.
-If `totalCredit <= 0`, emit no outputs.
-
----
-
-## Output Routing
-
-| Output Field | Destination Node | Condition | IRS Reference | URL |
-| ------------ | ---------------- | --------- | ------------- | --- |
-| `line6z_general_business_credit` | schedule3 | total credit > 0 | Form 5884 Line 4 → Form 3800 → Schedule 3 Line 6z | https://www.irs.gov/instructions/i1040s3 |
-
-**Note:** In the actual IRS workflow, Form 5884 Line 4 feeds Form 3800 (General Business Credit, Line 4), which then populates Schedule 3 Line 6z. This node collapses the Form 3800 intermediate computation and routes directly to schedule3 — consistent with other general business credit nodes in this codebase (f6478, f6765, f7207).
-
----
-
-## Constants & Thresholds (Tax Year 2025)
-
-| Constant | Value | Source | URL |
-| -------- | ----- | ------ | --- |
-| Standard wage cap (Groups 1, 3–5, 7–8, 10) | $6,000 | IRC §51(b)(3) | https://www.irs.gov/pub/irs-pdf/i5884.pdf |
-| Summer youth wage cap (Group 6) | $3,000 | IRC §51(d)(7)(B) | https://www.irs.gov/pub/irs-pdf/i5884.pdf |
-| LTFA first-year wage cap (Group 9) | $10,000 | IRC §51(e)(1) | https://www.irs.gov/pub/irs-pdf/i5884.pdf |
-| LTFA second-year wage cap (Group 9) | $10,000 | IRC §51(e)(2) | https://www.irs.gov/pub/irs-pdf/i5884.pdf |
-| Disabled veteran wage cap (service-connected, hired ≤1 yr of discharge) | $12,000 | IRC §51(d)(3)(A)(ii) | https://www.irs.gov/pub/irs-pdf/i5884.pdf |
-| Disabled veteran long-term / unemployed ≥6 months wage cap | $14,000 | IRC §51(d)(3)(A)(iii)–(iv) | https://www.irs.gov/pub/irs-pdf/i5884.pdf |
-| Credit rate — 120 to 399 hours worked | 25% | IRC §51(a) | https://www.irs.gov/pub/irs-pdf/i5884.pdf |
-| Credit rate — 400+ hours worked | 40% | IRC §51(a) | https://www.irs.gov/pub/irs-pdf/i5884.pdf |
-| Credit rate — LTFA first year | 40% | IRC §51(e)(1) | https://www.irs.gov/pub/irs-pdf/i5884.pdf |
-| Credit rate — LTFA second year | 50% | IRC §51(e)(2) | https://www.irs.gov/pub/irs-pdf/i5884.pdf |
-| Minimum hours for any credit (non-LTFA) | 120 hours | IRC §51(i)(3) | https://www.irs.gov/pub/irs-pdf/i5884.pdf |
-| No TY2025 inflation adjustments to WOTC | N/A | Rev. Proc. 2024-40 | https://www.irs.gov/pub/irs-drop/rp-24-40.pdf |
-
-All dollar amounts and percentages are set directly by IRC §51 and are NOT inflation-indexed.
-Rev. Proc. 2024-40 (TY2025 inflation adjustments) confirms no WOTC-specific changes.
-
----
-
-## Data Flow Diagram
-
-```
-flowchart LR
-  subgraph inputs["Data Entry (per employee)"]
-    A[target_group\nenum 1–10]
-    B[first_year_wages\nnumber]
-    C[second_year_wages\nnumber, LTFA only]
-    D[hours_worked\nnumber]
-    E[is_disabled_veteran\nbool]
-    F[is_disabled_veteran_long_term\nbool]
-  end
-
-  subgraph node["f5884 — Work Opportunity Credit"]
-    G[wageCap\nper group + veteran flags]
-    H[standardRate\n0% / 25% / 40%\nbased on hours]
-    I[employeeCredit\nper-item calculation]
-    J[totalCredit\nsum all entries]
-  end
-
-  subgraph outputs["Downstream Nodes"]
-    K[schedule3\nline6z_general_business_credit]
-  end
-
-  A --> G
-  B --> I
-  C --> I
-  D --> H
-  E --> G
-  F --> G
-  G --> I
-  H --> I
-  I --> J
-  J -->|credit > 0| K
-```
-
----
-
-## Edge Cases & Special Rules
-
-### Hours Threshold — Default to Zero
-An employee working fewer than 120 hours generates zero credit — even if wages were paid.
-The `hours_worked` field defaults to 0 if omitted, which correctly produces no credit for
-non-LTFA groups. Always provide `hours_worked` for non-LTFA employees.
-
-### LTFA Ignores Hours Worked
-Long-term family assistance (Group 9) is exempt from the hours-worked test entirely.
-IRC §51(e) establishes fixed rates (40% year 1, 50% year 2) regardless of hours. The node
-bypasses `standardRate()` entirely for this group.
-
-### Veteran Wage Caps — Three Tiers
-Veterans (Group 2) have three possible wage caps depending on subcategory:
-- Basic (SNAP/food stamp, no disability): $6,000 — omit or set both flags to false
-- Disabled veteran, hired within 1 year of discharge: $12,000 — set `is_disabled_veteran: true`
-- Disabled veteran ≥6 months post-discharge, OR unemployed ≥6 months: $14,000 — set `is_disabled_veteran_long_term: true`
-
-The `is_disabled_veteran_long_term` flag takes precedence over `is_disabled_veteran`.
-
-Note: IRC §51(d)(3) also defines a "veteran unemployed ≥4 weeks but <6 months" subcategory
-with a $6,000 cap (same as basic). The codebase models this as VeteranFoodStamp without
-either flag set.
-
-### Summer Youth Timing (Not Enforced)
-Summer youth employees (Group 6) must be employed between May 1 and September 15 of the
-calendar year. This is a certification/eligibility constraint handled before data entry.
-The node does not validate dates.
-
-### WOTC Pre-Certification Required (Form 8850)
-Employers must receive written certification from their State Workforce Agency (SWA) before
-(or by the 28th day after) hire. Form 8850 is the pre-screening notice submitted to the SWA.
-This is a filing prerequisite, not a field on Form 5884. The node assumes certification is
-already obtained.
-
-### Pass-Through Credits (Form 5884, Line 3)
-Credits flowing from partnerships, S corps, cooperatives, estates, and trusts (via Schedule
-K-1) appear on Form 5884, Line 3. This node only covers credits directly computed by the
-employer. K-1 pass-throughs are handled in K-1 input nodes.
-
-### Form 3800 Intermediate Collapsed
-Actual IRS flow: Form 5884 Line 4 → Form 3800 Line 4 → Schedule 3 Line 6z.
-This node collapses Form 3800, routing directly to schedule3. Consistent with f6478, f6765,
-f7207 and all other general business credit input nodes in this codebase.
-
-### Taxable vs. Tax-Exempt Employers
-Form 5884 is for taxable employers only. Tax-exempt organizations hiring qualified veterans
-use Form 5884-C, which credits against payroll taxes (not income tax). Form 5884-C is a
-separate node.
-
-### At-Risk and Passive Activity Limitations
-These limitations apply downstream at the Form 3800 / Schedule 3 level. This node computes
-the gross credit without limitation.
-
-### Carryback / Carryforward
-Unused credit may be carried back 1 year or forward 20 years via Form 3800. This node
-computes the current-year credit only; carry amounts are managed in Form 3800.
-
-### Aggregation Rules (IRC §52)
-Controlled groups and businesses under common control compute WOTC on an aggregate basis and
-then allocate among members. The node accepts pre-allocated wage inputs — aggregation is a
-pre-entry determination.
-
-### Wage Reduction (IRC §280C)
-The employer's otherwise allowable deduction for wages is reduced by the amount of the WOTC
-credit claimed (IRC §280C(a)). This wage reduction occurs on the business return (Schedule C,
-E, or F) — it is not computed within this node.
-
----
-
-## Sources
-
-| Document | Year | Section | URL | Saved as |
-| -------- | ---- | ------- | --- | -------- |
-| IRS Form 5884 (Rev. March 2024) | 2024 | All lines | https://www.irs.gov/pub/irs-pdf/f5884.pdf | docs/f5884.pdf |
-| IRS Instructions for Form 5884 (Rev. March 2024) | 2024 | All | https://www.irs.gov/pub/irs-pdf/i5884.pdf | docs/i5884.pdf |
-| IRC §51 — Amount of credit | 2025 | §51(a)–(i) | https://www.law.cornell.edu/uscode/text/26/51 | N/A |
-| IRC §52 — Special rules (controlled groups) | 2025 | §52 | https://www.law.cornell.edu/uscode/text/26/52 | N/A |
-| IRC §280C(a) — Wage deduction reduction | 2025 | §280C(a) | https://www.law.cornell.edu/uscode/text/26/280C | N/A |
-| IRC §38(b)(2) — General Business Credit | 2025 | §38(b)(2) | https://www.law.cornell.edu/uscode/text/26/38 | N/A |
-| Rev. Proc. 2024-40 — TY2025 inflation adjustments | 2024 | All | https://www.irs.gov/pub/irs-drop/rp-24-40.pdf | docs/rp-24-40.pdf |
-| IRS Instructions for Schedule 3 (Form 1040) | 2025 | Line 6z | https://www.irs.gov/instructions/i1040s3 | N/A |
-| DOL WOTC Program Overview | 2025 | All | https://www.dol.gov/agencies/eta/wotc | N/A |
+These checks are written but unrun under the requested build-first workflow. The
+row still accepts affirmed eligibility facts rather than reconciling
+certifications, payroll periods, and wage exclusions against primary source
+documents. Shared employees across controlled-group members, pass-through
+credits, passive-activity limitations, carryovers, source-document
+reconciliation, filled-PDF inspection, and ATS acceptance remain open. The
+one-page PDF descriptor now maps the official fillable widgets for lines 1a-1c,
+2, 3, and 4, but has not been visually verified after filling. Native XML and
+the shared nonpassive tax limit still need the full test batch, local XSD
+validation, and business-rule review before filing use.

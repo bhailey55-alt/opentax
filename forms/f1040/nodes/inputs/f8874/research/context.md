@@ -1,100 +1,95 @@
-# Form 8874 — New Markets Credit
+# Form 8874, New Markets Credit
 
-## Overview
-Computes the New Markets Credit under IRC §45D for qualified equity investments (QEIs) in Community Development Entities (CDEs). The credit spans 7 years: 5% of QEI for credit years 1–3 and 6% for credit years 4–7 (total 39% over 7 years). Routes to Schedule 3 line 6z. The node accepts either pre-computed credit amounts or raw investment amounts.
+The TY2025 Form 1040 implementation is a work in progress. The source for the
+current-year credit is an identified qualified equity investment (QEI), not a
+precomputed amount. The current input requires the community development
+entity's name, EIN, and U.S. address, the initial investment and 2025 credit
+allowance dates, QEI amount, designation notice reference, and affirmative
+holding and qualification facts. A passive investment additionally needs a
+distinct activity and source-document reference. Its current-year credit must
+resolve to whole dollars for the Form 8582-CR activity source. Recapture-notice
+cases still stop rather than being treated as an ordinary current-year credit.
 
-**IRS Form:** 8874
-**Drake Screen:** 8874
-**Node Type:** input
-**Tax Year:** 2025
-**Drake Reference:** https://kb.drakesoftware.com/Site/Browse/14030
+For each QEI, the initial allowance date and its first two anniversaries use 5%.
+The next four anniversaries use 6%. Own QEI credits make up Form 8874 line 1.
+When a taxpayer files Form 8874 for an own QEI and also has partnership or
+S-corporation New Markets K-1 credits, those K-1 amounts populate line 2, and
+line 3 adds lines 1 and 2. Prior-year carryovers do not belong in this
+source-form total; they use Form 3800's separate carryover path.
 
----
+The input node routes a self-earned nonpassive amount directly to Form 3800 and
+a self-earned passive amount through Form 8582-CR activity and tax facts. One
+IRS8874 source document carries all the QEI rows. Form 3800 Part III line 1i and
+Part V carry the resulting current-year source amounts. The MeF builders
+cross-check the filed Form 8874, Form 8582-CR activity sources, and Form 3800.
+Source and XML cases are written but have not run in the deferred full batch.
 
-## Input Fields
+Nonpassive partnership box 15 code AD and S-corporation box 13 code AD amounts
+go directly from identified K-1 sources to Form 3800 Part III line 1i. A
+pass-through-only filer does not get an invented IRS8874 attachment. Multiple
+same-line sources need explicit Part V use amounts if the tax limit only uses
+some of their combined credit. These cases are written but unrun. Estate/trust
+box 13 code ZZ amounts additionally require a source statement identifying the
+New Markets Credit and route directly to the same line 1i. Passive K-1 code
+AD/ZZ credits require matching Form 8582-CR activity facts and are checked again
+against their K-1 during MeF assembly. When an own QEI causes Form 8874 to be
+filed, line 2 is rebuilt from the filed partnership/S-corporation K-1s and
+checked against the matching direct Form 3800 entries or passive Form 8582-CR
+sources. Pass-through-only claims continue without an invented IRS8874 document.
+Line 2 does not include estate/trust code ZZ credits because the source form
+labels it for partnerships and S corporations.
 
-| Field | Type | Required | Source / Label | Description | IRS Reference | URL |
-| ----- | ---- | -------- | -------------- | ----------- | ------------- | --- |
-| credit_years_1_to_3 | number (≥0) | No | Credit (yrs 1–3) | Pre-computed credit amount for QEIs in credit years 1–3 (investment × 5%) | Form 8874 Part I | https://www.irs.gov/pub/irs-pdf/i8874.pdf |
-| credit_years_4_to_7 | number (≥0) | No | Credit (yrs 4–7) | Pre-computed credit amount for QEIs in credit years 4–7 (investment × 6%) | Form 8874 Part I | https://www.irs.gov/pub/irs-pdf/i8874.pdf |
-| investment_amount_early | number (≥0) | No | QEI (yrs 1–3) | Raw QEI amount in credit years 1–3; node applies 5% rate | Form 8874 Part I | https://www.irs.gov/pub/irs-pdf/i8874.pdf |
-| investment_amount_later | number (≥0) | No | QEI (yrs 4–7) | Raw QEI amount in credit years 4–7; node applies 6% rate | Form 8874 Part I | https://www.irs.gov/pub/irs-pdf/i8874.pdf |
-| prior_year_carryforward | number (≥0) | No | Carryforward | Unused New Markets Credit carried forward from prior years | Form 8874 Part II | https://www.irs.gov/pub/irs-pdf/i8874.pdf |
+Open work: cent-bearing passive credit and shared XML rounding; carryovers and
+carrybacks; recapture and sale events; leap-day anniversary rules; filled PDF
+output; IRS business rules and ATS acceptance. The current route is not
+filing-ready.
 
----
+Recapture must be a separate source-backed path, including when no current-year
+Form 8874 is filed. Form 8874-B identifies the CDE, investment, event date and
+reason, and year-by-year decreases, but its notice amount alone is not the
+taxpayer's Schedule 2 line 17a tax. Section 45D(g)(2) requires the decrease in
+prior-year Section 38 credits actually allowed if this QEI's credit had been
+zero, plus interest at the Section 6621 underpayment rate for each affected
+year. Unused carryovers and carrybacks must be adjusted rather than treated as
+tax used. The IRS audit guide describes daily-compounded interest from each
+prior return's original due date through the recapture-year return due date. For
+TY2025, Schedule 2 line 17a identifies this as `NMCR`; the MeF schema has a
+separate `RecaptureOtherCreditsGrp` for that code. A standalone input needs the
+notice identity, prior return and recomputation evidence, prior due dates,
+applicable interest-rate periods, and carryover adjustments. It must not take a
+single unexplained recapture-tax amount. The current build pass replaces loose
+per-year unused-credit balances with a referenced list of QEI carryover
+vintages: originating year, credit generated, amount available to TY2025 before
+recapture, source document, and each earlier tax year where the credit was
+allowed with its filed-return reference. Historical use plus the entering-2025
+balance must equal the generated credit, and any carryback must be to the
+immediately preceding year, no earlier than the QEI's first allowable year. The
+calculator emits an explicit adjustment of each vintage to zero, but Form 3800
+Part IV column (h), Part VI source detail, and the required changed-carryforward
+statement are not yet linked. The sources still need reconciliation to actual
+prior filed and amended returns.
 
-## Calculation Logic
+Form 8874's instructions exclude a substantially-all failure that the CDE
+corrects within six months of awareness, with only one correction permitted per
+QEI during the seven-year period. A signed Form 8874-B notice is still source
+evidence, but the substantially-all reason needs a documented cure review before
+this engine reports recapture. The build pass requires an explicit finding that
+the exception does not apply; it does not authenticate the CDE's underlying cure
+records. The underpayment-rate implementation uses the IRS quarterly table and a
+366-day denominator for 2024. Its written cross-quarter/leap-year case is unrun,
+and interest rounding needs independent IRS example reconciliation.
 
-### Step 1 — Current-year credit from pre-computed amounts
-`directCredit = (credit_years_1_to_3 ?? 0) + (credit_years_4_to_7 ?? 0)`
+A sale or other disposition alone does not trigger recapture, although the
+seller cannot claim an allowance date after disposition. This is distinct from a
+CDE redemption or other statutory recapture event. Sale gain/loss and basis
+adjustments need their own source reconciliation.
 
-### Step 2 — Current-year credit from raw investment amounts
-`computedCredit = (investment_amount_early ?? 0) × 5% + (investment_amount_later ?? 0) × 6%`
+Sources:
 
-### Step 3 — Total current-year credit
-`currentYearCredit = directCredit + computedCredit`
-
-### Step 4 — Add carryforward
-`totalCredit = currentYearCredit + (prior_year_carryforward ?? 0)`
-Source: Form 8874 Line 7 — https://www.irs.gov/pub/irs-pdf/i8874.pdf
-
----
-
-## Output Routing
-
-| Output Field | Destination Node | Condition | IRS Reference | URL |
-| ------------ | ---------------- | --------- | ------------- | --- |
-| line6z_general_business_credit | schedule3 | total > 0 | Form 8874 → Schedule 3 Line 6z | https://www.irs.gov/pub/irs-pdf/f1040s3.pdf |
-
----
-
-## Constants & Thresholds (Tax Year 2025)
-
-| Constant | Value | Source | URL |
-| -------- | ----- | ------ | --- |
-| Credit rate — years 1–3 of credit period | 5% of QEI | IRC §45D(a)(2)(A); statutory | https://www.law.cornell.edu/uscode/text/26/45D |
-| Credit rate — years 4–7 of credit period | 6% of QEI | IRC §45D(a)(2)(B); statutory | https://www.law.cornell.edu/uscode/text/26/45D |
-| Total credit over 7 years | 39% of QEI | IRC §45D(a); statutory | https://www.law.cornell.edu/uscode/text/26/45D |
-| Credit period | 7 years | IRC §45D(a)(1); statutory | https://www.law.cornell.edu/uscode/text/26/45D |
-
----
-
-## Data Flow Diagram
-
-flowchart LR
-  subgraph inputs["Data Entry"]
-    early["credit_years_1_to_3 or\ninvestment_amount_early"]
-    later["credit_years_4_to_7 or\ninvestment_amount_later"]
-    cf["prior_year_carryforward"]
-  end
-  subgraph node["f8874 (New Markets Credit)"]
-    cur["computeCurrentYearCredit()"]
-    tot["totalCredit()"]
-  end
-  subgraph outputs["Downstream Nodes"]
-    s3["schedule3\nline6z_general_business_credit"]
-  end
-  early & later --> cur --> tot
-  cf --> tot --> s3
-
----
-
-## Edge Cases & Special Rules
-
-1. **Dual input modes**: Node accepts either pre-computed credit amounts OR raw investment amounts. If both are provided for the same period, they stack (additive) — preparer should provide only one or the other per period.
-2. **Credit year tracking**: The "credit year" is determined from when the QEI was originally made, not the current tax year. Years 1–3 use 5%; years 4–7 use 6%.
-3. **CDE allocation requirement**: QEIs must be certified by a CDE (Community Development Entity) — not enforced by this node.
-4. **7-year recapture period**: If the CDE fails the qualifying low-income community business requirements, the credit is recaptured. Not enforced in this node.
-5. **Non-refundable**: Excess credit carries back 1 year, forward 20 years via Form 3800.
-6. **Carryforward**: `prior_year_carryforward` adds to the current-year credit for routing to Schedule 3.
-7. **No annual investment cap**: IRC §45D does not impose a per-taxpayer annual cap on QEI amounts.
-
----
-
-## Sources
-
-| Document | Year | Section | URL | Saved as |
-| -------- | ---- | ------- | --- | -------- |
-| Form 8874 Instructions | 2024 | All | https://www.irs.gov/pub/irs-pdf/i8874.pdf | .research/docs/i8874.pdf |
-| IRC §45D — New Markets Tax Credit | current | §45D(a–c) | https://www.law.cornell.edu/uscode/text/26/45D | N/A |
-| Rev Proc 2024-40 (TY2025 adjustments) | 2024 | §3 | https://www.irs.gov/pub/irs-drop/rp-24-40.pdf | .research/docs/rp-24-40.pdf |
+- [Form 8874](https://www.irs.gov/pub/irs-pdf/f8874.pdf)
+- [Form 8874 instructions](https://www.irs.gov/instructions/i8874)
+- [Form 3800 instructions](https://www.irs.gov/instructions/i3800)
+- [Form 8874-B](https://www.irs.gov/pub/irs-pdf/f8874b.pdf)
+- [Section 45D](https://uscodeweb1.house.gov/view.xhtml?edition=prelim&num=0&req=granuleid%3AUSC-prelim-title26-section45D)
+- [IRS New Markets Credit audit guide](https://www.irs.gov/pub/irs-utl/atgnmtc.pdf)
+- [IRS underpayment interest rates](https://www.irs.gov/payments/quarterly-interest-rates)

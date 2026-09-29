@@ -1,30 +1,67 @@
 import { z } from "zod";
-import type {
-  NodeOutput,
-  NodeResult,
-} from "../../../../../../core/types/tax-node.ts";
-import { TaxNode, output, type AtLeastOne } from "../../../../../../core/types/tax-node.ts";
+import type { NodeResult } from "../../../../../../core/types/tax-node.ts";
+import { TaxNode } from "../../../../../../core/types/tax-node.ts";
 import { OutputNodes } from "../../../../../../core/types/output-nodes.ts";
-import { f1040 } from "../../../outputs/f1040/index.ts";
-import { schedule3 } from "../../aggregation/schedule3/index.ts";
 import { filingStatusSchema } from "../../../types.ts";
 import type { NodeContext } from "../../../../../../core/types/node-context.ts";
 
 // ─── Schemas ─────────────────────────────────────────────────────────────────
 
-// Per-child schema — one entry per eligible child on Part I / Part II
-export const childSchema = z.object({
-  // Qualified adoption expenses paid (Part II Line 5 — excluding employer-reimbursed amounts)
-  qualified_expenses: z.number().nonnegative(),
-  // Child with special needs determination by state/Indian tribal government (Part I Col d)
-  special_needs: z.boolean(),
-  // Total adoption credit claimed for this child in prior years (Part II Line 3)
-  prior_year_credit: z.number().nonnegative().optional(),
-  // Foreign adoption: adoption must be final before credit is allowed
-  adoption_is_final: z.boolean().optional(),
-  // Foreign child flag — requires adoption_is_final = true for credit
-  is_foreign_child: z.boolean().optional(),
+const sourceDocumentIdSchema = z.string().min(1);
+const dateSchema = z.string().regex(/^20\d{2}-\d{2}-\d{2}$/).refine(
+  (value) =>
+    !Number.isNaN(Date.parse(value)) &&
+    new Date(value).toISOString().slice(0, 10) === value,
+);
+
+export const adoptionExpenseSchema = z.object({
+  source_document_id: sourceDocumentIdSchema,
+  paid_date: dateSchema,
+  category: z.enum(["adoption_fee", "attorney_fee", "court_cost", "travel"]),
+  payee: z.string().min(1),
+  amount: z.number().nonnegative(),
+  reimbursed_amount: z.number().nonnegative(),
+  reimbursement_source_document_id: sourceDocumentIdSchema.optional(),
+}).strict().superRefine((expense, ctx) => {
+  if (expense.reimbursed_amount > expense.amount) {
+    ctx.addIssue({ code: "custom", message: "reimbursement exceeds expense" });
+  }
+  if (
+    expense.reimbursed_amount > 0 &&
+    !expense.reimbursement_source_document_id
+  ) {
+    ctx.addIssue({
+      code: "custom",
+      message: "reimbursed expense needs reimbursement source document",
+    });
+  }
 });
+
+// One domestic adoption finalized in 2025, with record identifiers for
+// independent review. Record identifiers do not themselves verify contents.
+export const childSchema = z.object({
+  first_name: z.string().min(1).max(20),
+  last_name: z.string().min(1).max(35),
+  birth_year: z.number().int().min(2008).max(2025),
+  ssn: z.string().regex(/^\d{9}$/),
+  final_decree: z.object({
+    source_document_id: sourceDocumentIdSchema,
+    finalization_date: dateSchema.refine((date) => date.startsWith("2025-")),
+    issuing_jurisdiction: z.string().min(1),
+    child_origin: z.literal("US"),
+  }).strict(),
+  special_needs_determination: z.object({
+    source_document_id: sourceDocumentIdSchema,
+    agency_name: z.string().min(1),
+    determination_date: dateSchema,
+  }).strict().optional(),
+  expenses: z.array(adoptionExpenseSchema),
+  prior_filed_form8839: z.object({
+    source_document_id: sourceDocumentIdSchema,
+    line3: z.number().nonnegative(),
+    line6: z.number().nonnegative(),
+  }).strict().optional(),
+}).strict();
 
 // Node input schema — flat input combining W-2 Box 12T and direct filer data
 export const inputSchema = z.object({
@@ -32,195 +69,211 @@ export const inputSchema = z.object({
   adoption_benefits: z.number().nonnegative().optional(),
   // Per-child data for Part I / Part II credit calculation
   children: z.array(childSchema).optional(),
-  // Modified adjusted gross income — Line 7 (credit) and Line 25 (exclusion)
-  magi: z.number().nonnegative().optional(),
-  // Income tax liability for credit limit worksheet (Line 17)
-  // If omitted, nonrefundable credit is not limited (treated as unconstrained)
-  income_tax_liability: z.number().nonnegative().optional(),
   // Filing status — MFS generally cannot claim credit or exclusion
   filing_status: filingStatusSchema.optional(),
-});
+}).strict();
+
+const amountSchema = z.number().finite().nonnegative();
+const agiSchema = z.number().finite();
+
+// A pre-adoption-credit return snapshot. These values must be produced by a
+// future finalized-return stage, not supplied as Form 8839 source assertions.
+export const finalizedReturnCreditContextSchema = z.object({
+  form1040_line11b_agi: agiSchema,
+  form1040_line18_tax_before_credits: amountSchema,
+  magi_additions: z.object({
+    puerto_rico_excluded_income: amountSchema,
+    form2555_line45: amountSchema,
+    form2555_line50: amountSchema,
+    form4563_line15: amountSchema,
+  }).strict(),
+  child_credit_priority: z.discriminatedUnion("basis", [
+    z.object({ basis: z.literal("form1040_line19"), amount: amountSchema }),
+    z.object({
+      basis: z.literal("schedule8812_worksheet_b_line14"),
+      amount: amountSchema,
+    }),
+  ]),
+  schedule3_priority: z.object({
+    line1: amountSchema,
+    line2: amountSchema,
+    line3: amountSchema,
+    line4: amountSchema,
+    line5b: amountSchema,
+    line6d: amountSchema,
+    line6f: amountSchema,
+    line6g: amountSchema,
+    line6l: amountSchema,
+    line6m: amountSchema,
+  }).strict(),
+}).strict();
 
 type ChildItem = z.infer<typeof childSchema>;
-type Form8839Input = z.infer<typeof inputSchema>;
+export type Form8839Input = z.infer<typeof inputSchema>;
+export type FinalizedReturnCreditContext = z.infer<
+  typeof finalizedReturnCreditContextSchema
+>;
 
 // ─── Pure helpers ─────────────────────────────────────────────────────────────
 
 // Phase-out fraction for both Part II credit and Part III exclusion.
 // Fraction = (MAGI - phaseOutStart) / phaseOutRange, clamped to [0, 1], rounded to 3 decimal places.
 // IRC §23(b)(2); IRC §137(b)(2)
-function phaseOutFraction(magi: number, phaseOutStart: number, phaseOutRange: number): number {
+function phaseOutFraction(
+  magi: number,
+  phaseOutStart: number,
+  phaseOutRange: number,
+): number {
   if (magi <= phaseOutStart) return 0;
   const raw = (magi - phaseOutStart) / phaseOutRange;
   return Math.round(Math.min(1, raw) * 1000) / 1000;
 }
 
-// Returns true if this filer is blocked from claiming credit/exclusion due to MFS status.
-// MFS filers cannot claim unless legally separated or living apart (we accept an exception
-// flag; without it, MFS is blocked). IRC §23(f)(2); IRC §137(f)(2)
-function isBlockedByMfs(input: Form8839Input): boolean {
-  return input.filing_status === "mfs";
+function priorFiledCredit(child: ChildItem): number {
+  return (child.prior_filed_form8839?.line3 ?? 0) +
+    (child.prior_filed_form8839?.line6 ?? 0);
+}
+
+function qualifiedUnreimbursedExpenses(child: ChildItem): number {
+  return child.expenses.reduce((total, expense) => {
+    if (!/^202[45]-/.test(expense.paid_date)) {
+      throw new Error(
+        "Form 8839 domestic 2025-final adoption needs 2024/2025 payment dates",
+      );
+    }
+    return total + expense.amount - expense.reimbursed_amount;
+  }, 0);
 }
 
 // Per-child credit before phase-out (Part II Lines 2-6).
-// Special needs: full maxCreditPerChild minus prior year credit, regardless of expenses.
-// Domestic/foreign: capped at min(MAX - prior, expenses).
+// A 2025-final U.S. special-needs adoption uses the remaining maximum even
+// when the reviewed receipt ledger has no paid expenses.
 function perChildBaseline(child: ChildItem, maxCreditPerChild: number): number {
-  const prior = child.prior_year_credit ?? 0;
+  const prior = priorFiledCredit(child);
   const remaining = Math.max(0, maxCreditPerChild - prior);
 
-  if (child.special_needs) {
-    // Special needs: entitled to full remaining max even with $0 expenses
+  if (child.special_needs_determination) {
     return remaining;
   }
-
-  // Foreign child without finalized adoption: no credit
-  if (child.is_foreign_child && child.adoption_is_final !== true) {
-    return 0;
-  }
-
-  return Math.min(remaining, child.qualified_expenses);
+  return Math.min(remaining, qualifiedUnreimbursedExpenses(child));
 }
 
 // Per-child credit after phase-out (Part II Line 11a).
-function perChildAllowed(child: ChildItem, fraction: number, maxCreditPerChild: number): number {
-  const baseline = perChildBaseline(child, maxCreditPerChild);
-  return Math.round(baseline * (1 - fraction) * 100) / 100;
-}
-
-// Total credit across all children (Part II Line 12 = sum of Line 11a).
-function totalCredit(
-  children: ChildItem[],
+function perChildAllowed(
+  line6: number,
   fraction: number,
-  maxCreditPerChild: number,
 ): number {
-  return children.reduce(
-    (sum, child) => sum + perChildAllowed(child, fraction, maxCreditPerChild),
-    0,
-  );
+  const line10Phaseout = Math.round(line6 * fraction * 100) / 100;
+  return Math.max(0, Math.round((line6 - line10Phaseout) * 100) / 100);
 }
 
-// Nonrefundable credit limited by tax liability.
-// Part II Line 17 → Schedule 3 Line 6c.
-// The adoption credit has been entirely nonrefundable since TY2013 (ATRA §104).
-function nonrefundableCredit(total: number, taxLiability: number | undefined): number {
-  if (total <= 0) return 0;
-  // Credit limit worksheet: nonrefundable portion cannot exceed tax liability
-  const limit = taxLiability ?? Infinity;
-  return Math.min(total, limit);
+function finalizedMagi(context: FinalizedReturnCreditContext): number {
+  const additions = context.magi_additions;
+  return context.form1040_line11b_agi +
+    additions.puerto_rico_excluded_income + additions.form2555_line45 +
+    additions.form2555_line50 + additions.form4563_line15;
 }
 
-// Employer-provided adoption benefits excluded from income (Part III).
-// Max exclusion maxCreditPerChild per child, subject to the same phase-out as the credit.
-// Returns { excluded, taxable } pair.
-function exclusionAmounts(
-  adoptionBenefits: number,
-  childCount: number,
-  fraction: number,
-  maxCreditPerChild: number,
-): { excluded: number; taxable: number } {
-  if (adoptionBenefits <= 0 || childCount <= 0) {
-    return { excluded: 0, taxable: 0 };
+function creditLimitWorksheetPriority(
+  context: FinalizedReturnCreditContext,
+): number {
+  const lines = context.schedule3_priority;
+  return context.child_credit_priority.amount + lines.line1 + lines.line2 +
+    lines.line3 + lines.line4 + lines.line5b + lines.line6d + lines.line6f +
+    lines.line6g + lines.line6l + lines.line6m;
+}
+
+export function prepareForm8839Credit(input: Form8839Input) {
+  const sourced = inputSchema.parse(input);
+  const perChild = (sourced.children ?? []).map((child) => {
+    const line2 = 17_280;
+    const line3 = priorFiledCredit(child);
+    if (line3 > line2) {
+      throw new Error(
+        "Form 8839 prior-year credit cannot exceed the per-child maximum",
+      );
+    }
+    const line4 = Math.max(0, line2 - line3);
+    // 2025 instructions, Part II line 5: for a qualifying special-needs
+    // adoption finalized in 2025, enter the remaining statutory maximum,
+    // not the actual cash expenses paid.
+    const line5 = child.special_needs_determination
+      ? line4
+      : qualifiedUnreimbursedExpenses(child);
+    const line6 = perChildBaseline(child, line2);
+    return { line2, line3, line4, line5, line6 };
+  });
+  return { perChild, adoptionBenefits: sourced.adoption_benefits ?? 0 };
+}
+
+export type PreparedForm8839Credit = ReturnType<typeof prepareForm8839Credit>;
+
+export function settleForm8839Credit(
+  prepared: PreparedForm8839Credit,
+  finalizedReturn: FinalizedReturnCreditContext,
+) {
+  if (prepared.adoptionBenefits > 0) {
+    throw new Error(
+      "Form 8839 credit settlement needs Part III employer-benefit exclusion before MAGI",
+    );
   }
-
-  const maxExclusion = maxCreditPerChild * childCount;
-  const cappedBenefits = Math.min(adoptionBenefits, maxExclusion);
-
-  // Phase-out applies to the excluded amount
-  const excludedBeforePhaseOut = cappedBenefits;
-  const excluded = Math.round(excludedBeforePhaseOut * (1 - fraction) * 100) / 100;
-  const taxable = adoptionBenefits - excluded;
-
-  return { excluded, taxable: Math.max(0, taxable) };
-}
-
-// Build credit outputs (Part II).
-// The adoption credit is entirely nonrefundable since TY2013 (ATRA §104).
-function creditOutputs(
-  input: Form8839Input,
-  fraction: number,
-  maxCreditPerChild: number,
-): NodeOutput[] {
-  const children = input.children ?? [];
-  if (children.length === 0) return [];
-
-  const total = totalCredit(children, fraction, maxCreditPerChild);
-  const nonrefundable = nonrefundableCredit(total, input.income_tax_liability);
-
-  if (nonrefundable <= 0) return [];
-  return [output(schedule3, { line6c_adoption_credit: nonrefundable })];
-}
-
-// Build exclusion output (Part III) — taxable employer benefits on f1040 line 1f.
-function exclusionOutputs(
-  input: Form8839Input,
-  fraction: number,
-  maxCreditPerChild: number,
-): NodeOutput[] {
-  const benefits = input.adoption_benefits ?? 0;
-  if (benefits <= 0) return [];
-
-  const childCount = (input.children ?? []).length;
-  const { taxable } = exclusionAmounts(benefits, childCount, fraction, maxCreditPerChild);
-
-  if (taxable <= 0) return [];
-
-  return [output(f1040, { line1f_taxable_adoption_benefits: Math.round(taxable * 100) / 100 })];
-}
-
-// Merge multiple f1040 outputs into one (avoid duplicate nodeType entries).
-function mergeF1040Outputs(outputs: NodeOutput[]): NodeOutput[] {
-  const f1040Outputs = outputs.filter((o) => o.nodeType === f1040.nodeType);
-  const otherOutputs = outputs.filter((o) => o.nodeType !== f1040.nodeType);
-
-  if (f1040Outputs.length === 0) return otherOutputs;
-
-  const merged = f1040Outputs.reduce(
-    (acc, o) => ({ ...acc, ...o.fields }),
-    {} as Partial<z.infer<typeof f1040["inputSchema"]>>,
+  const context = finalizedReturnCreditContextSchema.parse(finalizedReturn);
+  const magi = finalizedMagi(context);
+  const fraction = phaseOutFraction(magi, 259_190, 40_000);
+  const perChild = prepared.perChild.map((base) => {
+    const line10 = Math.round(base.line6 * fraction * 100) / 100;
+    const line11a = perChildAllowed(base.line6, fraction);
+    const line11b = Math.min(line11a, 5_000);
+    return { ...base, line10, line11a, line11b };
+  });
+  const line11c = perChild.reduce((sum, child) => sum + child.line11b, 0);
+  const line12 = perChild.reduce((sum, child) => sum + child.line11a, 0);
+  const line13 = line11c;
+  const line14 = Math.round((line12 - line13) * 100) / 100;
+  const priority = creditLimitWorksheetPriority(context);
+  const capacity = Math.max(
+    0,
+    context.form1040_line18_tax_before_credits - priority,
   );
-
-  return [...otherOutputs, output(f1040, merged as AtLeastOne<z.infer<typeof f1040["inputSchema"]>>)];
+  const line17 = Math.min(line14, capacity);
+  const line18 = line17;
+  return {
+    magi,
+    fraction,
+    perChild,
+    line11c,
+    line12,
+    line13,
+    line14,
+    creditLimitWorksheet: {
+      line1: line14,
+      line2: context.form1040_line18_tax_before_credits,
+      line3: priority,
+      line4: capacity,
+      line5: line17,
+    },
+    line17,
+    line18,
+  };
 }
 
-// ─── Node class ───────────────────────────────────────────────────────────────
-
+// The active filing route is closed until source documents and finalized-return
+// facts can substantiate eligibility, expenses, MAGI, and credit capacity.
 class Form8839Node extends TaxNode<typeof inputSchema> {
   readonly nodeType = "form8839";
   readonly inputSchema = inputSchema;
-  readonly outputNodes = new OutputNodes([schedule3, f1040]);
-
-  // TY2025 — IRS Instructions for Form 8839 (Dec 8 2025) / Rev Proc 2024-40
-  protected readonly maxCreditPerChild = 17280;
-  protected readonly phaseOutStart = 259190;
-  protected readonly phaseOutRange = 40000; // $259,190 to $299,190
+  readonly outputNodes = new OutputNodes([]);
 
   compute(_ctx: NodeContext, rawInput: Form8839Input): NodeResult {
     const input = inputSchema.parse(rawInput);
-
-    const children = input.children ?? [];
-    const magi = input.magi ?? 0;
-
-    // MFS filers cannot claim (without exception)
-    if (isBlockedByMfs(input)) {
-      return { outputs: [] };
+    if (
+      (input.children?.length ?? 0) > 0 || (input.adoption_benefits ?? 0) > 0
+    ) {
+      throw new Error(
+        "Form 8839 filing needs source-verified adoption eligibility, unreimbursed expenses, finalized-return MAGI, and credit-limit capacity",
+      );
     }
-
-    const fraction = phaseOutFraction(magi, this.phaseOutStart, this.phaseOutRange);
-
-    // If fully phased out, no credit or exclusion benefit
-    if (fraction >= 1) {
-      return { outputs: [] };
-    }
-
-    const normalized: Form8839Input = { ...input, children, magi };
-
-    const outputs = mergeF1040Outputs([
-      ...creditOutputs(normalized, fraction, this.maxCreditPerChild),
-      ...exclusionOutputs(normalized, fraction, this.maxCreditPerChild),
-    ]);
-
-    return { outputs };
+    return { outputs: [] };
   }
 }
 

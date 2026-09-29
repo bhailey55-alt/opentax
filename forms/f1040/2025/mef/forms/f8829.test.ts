@@ -1,234 +1,193 @@
-import { assertEquals, assertStringIncludes } from "@std/assert";
+import { assertEquals, assertStringIncludes, assertThrows } from "@std/assert";
+import { type FilerIdentity, FilingStatus } from "../../../mef/header.ts";
+import { TS } from "../../../nodes/types.ts";
+import {
+  calculateRentedHomeForm8829,
+  type RentedHomeSource,
+} from "../../../nodes/intermediate/forms/form_8829/index.ts";
 import { form8829 } from "./f8829.ts";
+import { scheduleC } from "./schedule_c.ts";
 
-function assertNotIncludes(actual: string, expected: string) {
-  assertEquals(
-    actual.includes(expected),
-    false,
-    `Expected string NOT to include: ${expected}`,
-  );
+const source: RentedHomeSource = {
+  business_reference: "C-1",
+  home_identifier: "HOME-1",
+  recipient: TS.T,
+  business_area_sqft: 200,
+  total_area_sqft: 1_000,
+  schedule_c_line29_tentative_profit: 5_000,
+  insurance_indirect: 1_000,
+  rent_indirect: 10_000,
+  repairs_indirect: 500,
+  utilities_indirect: 2_000,
+  other_indirect: 500,
+  prior_operating_carryover: 100,
+  regular_exclusive_use_verified: true,
+  actual_expense_method_verified: true,
+  rented_home_verified: true,
+  sole_home_and_business_verified: true,
+  all_schedule_c_gross_income_attributable_to_home_verified: true,
+  no_daycare_or_inventory_exception: true,
+  no_home_business_gain_or_other_trade_loss: true,
+  no_casualty_mortgage_tax_or_depreciation: true,
+  home_expenses_excluded_from_schedule_c_verified: true,
+};
+
+const filer: FilerIdentity = {
+  primarySSN: "123456789",
+  nameLine1: "TAXPAYER ALEX",
+  nameControl: "TAX",
+  fullName: "Alex Taxpayer",
+  address: { line1: "1 Test Way", city: "Austin", state: "TX", zip: "78701" },
+  filingStatus: FilingStatus.Single,
+};
+
+function context(sourceFacts: RentedHomeSource = source) {
+  const lines = calculateRentedHomeForm8829(sourceFacts);
+  return {
+    filer,
+    pending: {
+      schedule_c: {
+        schedule_cs: [{
+          business_reference: "C-1",
+          proprietor_recipient: TS.T,
+          line_a_principal_business: "Consulting",
+          line_b_business_code: "541600",
+          line_f_accounting_method: "cash" as const,
+          line_g_material_participation: true,
+          line_1_gross_receipts: 5_000,
+        }],
+        ...(lines.line36 > 0
+          ? {
+            form8829_line30: {
+              business_reference: sourceFacts.business_reference,
+              home_identifier: sourceFacts.home_identifier,
+              recipient: sourceFacts.recipient,
+              schedule_c_line29_tentative_profit:
+                sourceFacts.schedule_c_line29_tentative_profit,
+              line36: lines.line36,
+            },
+          }
+          : {}),
+      },
+    },
+  };
 }
 
-// ---------------------------------------------------------------------------
-// Section 1: Empty input
-// ---------------------------------------------------------------------------
-
-Deno.test("empty object returns empty string", () => {
+Deno.test("2025 Form 8829 empty pending slice emits no document", () => {
   assertEquals(form8829.build({}), "");
 });
 
-// ---------------------------------------------------------------------------
-// Section 2: Unknown keys ignored
-// ---------------------------------------------------------------------------
-
-Deno.test("all unknown keys returns empty string", () => {
-  assertEquals(form8829.build({ junk: 999, foo: "bar", baz: 0 }), "");
-});
-
-// ---------------------------------------------------------------------------
-// Section 3: Zero value emitted
-// ---------------------------------------------------------------------------
-
-Deno.test("total_area at zero is emitted", () => {
-  const result = form8829.build({ total_area: 0 });
+Deno.test("2025 Form 8829 MeF files positive line 36 with matching Schedule C claim", () => {
+  const xml = form8829.build({
+    rented_home: source,
+    ...calculateRentedHomeForm8829(source),
+  }, context());
   assertStringIncludes(
-    result,
-    "<TotalAreaOfHomeSqFtCnt>0</TotalAreaOfHomeSqFtCnt>",
+    xml,
+    "<AllowableHomeBusExpnssSchCAmt>2900</AllowableHomeBusExpnssSchCAmt>",
+  );
+  const linked = context();
+  const [scheduleXml] = scheduleC.build(linked.pending.schedule_c, {
+    filer,
+    pending: {
+      schedule_c: linked.pending.schedule_c,
+      form_8829: {
+        rented_home: source,
+        ...calculateRentedHomeForm8829(source),
+      },
+    },
+  });
+  assertStringIncludes(
+    scheduleXml,
+    "<TentativeProfitOrLossAmt>5000</TentativeProfitOrLossAmt>",
+  );
+  assertStringIncludes(
+    scheduleXml,
+    "<HomeBusinessExpenseAmt>2900</HomeBusinessExpenseAmt>",
+  );
+  assertStringIncludes(
+    scheduleXml,
+    "<NetProfitOrLossAmt>2100</NetProfitOrLossAmt>",
   );
 });
 
-// ---------------------------------------------------------------------------
-// Section 4: Per-field mapping (one test per field, 12 fields)
-// ---------------------------------------------------------------------------
-
-Deno.test("total_area maps to TotalAreaOfHomeSqFtCnt", () => {
-  const result = form8829.build({ total_area: 2000 });
-  assertStringIncludes(
-    result,
-    "<TotalAreaOfHomeSqFtCnt>2000</TotalAreaOfHomeSqFtCnt>",
+Deno.test("2025 Form 8829 MeF rejects mismatched or duplicated Schedule C deduction", () => {
+  const fields = {
+    rented_home: source,
+    ...calculateRentedHomeForm8829(source),
+  };
+  const valid = context();
+  assertThrows(
+    () =>
+      form8829.build(fields, {
+        ...valid,
+        pending: {
+          schedule_c: {
+            ...valid.pending.schedule_c,
+            form8829_line30: {
+              ...valid.pending.schedule_c.form8829_line30,
+              line36: 1,
+            },
+          },
+        },
+      }),
+    Error,
+    "matching Schedule C claim",
+  );
+  assertThrows(
+    () =>
+      form8829.build(fields, {
+        ...valid,
+        pending: {
+          schedule_c: {
+            ...valid.pending.schedule_c,
+            line_30_home_office: 2_900,
+          },
+        },
+      }),
+    Error,
+    "one identified Schedule C business",
   );
 });
 
-Deno.test("business_area maps to BusinessAreaOfHomeSqFtCnt", () => {
-  const result = form8829.build({ business_area: 400 });
+Deno.test("2025 Form 8829 files line 43 carryover with zero current deduction", () => {
+  const noIncome = { ...source, schedule_c_line29_tentative_profit: 0 };
+  const xml = form8829.build(
+    { rented_home: noIncome, ...calculateRentedHomeForm8829(noIncome) },
+    {
+      ...context(noIncome),
+      pending: {
+        schedule_c: {
+          ...context(noIncome).pending.schedule_c,
+          schedule_cs: [{
+            ...context(noIncome).pending.schedule_c.schedule_cs[0],
+            line_1_gross_receipts: 0,
+          }],
+        },
+      },
+    },
+  );
   assertStringIncludes(
-    result,
-    "<BusinessAreaOfHomeSqFtCnt>400</BusinessAreaOfHomeSqFtCnt>",
+    xml,
+    "<AllowableHomeBusExpnssSchCAmt>0</AllowableHomeBusExpnssSchCAmt>",
+  );
+  assertStringIncludes(xml, "<ProprietorNm>Alex Taxpayer</ProprietorNm>");
+  assertStringIncludes(xml, "<BusinessPct>0.20000</BusinessPct>");
+  assertStringIncludes(
+    xml,
+    "<OperatingExpensesAmt>2900</OperatingExpensesAmt>",
   );
 });
 
-Deno.test("mortgage_interest maps to MortgageInterestAmt", () => {
-  const result = form8829.build({ mortgage_interest: 12000 });
-  assertStringIncludes(
-    result,
-    "<MortgageInterestAmt>12000</MortgageInterestAmt>",
+Deno.test("2025 Form 8829 rejects stale line 36 before filing", () => {
+  const lines = calculateRentedHomeForm8829(source);
+  assertThrows(
+    () =>
+      form8829.build(
+        { rented_home: source, ...lines, line36: 3_000 },
+        context(),
+      ),
+    Error,
+    "differs from source calculation",
   );
-});
-
-Deno.test("insurance maps to InsuranceAmt", () => {
-  const result = form8829.build({ insurance: 1500 });
-  assertStringIncludes(result, "<InsuranceAmt>1500</InsuranceAmt>");
-});
-
-Deno.test("rent maps to RentAmt", () => {
-  const result = form8829.build({ rent: 18000 });
-  assertStringIncludes(result, "<RentAmt>18000</RentAmt>");
-});
-
-Deno.test("repairs_maintenance maps to RepairsAndMaintenanceAmt", () => {
-  const result = form8829.build({ repairs_maintenance: 500 });
-  assertStringIncludes(
-    result,
-    "<RepairsAndMaintenanceAmt>500</RepairsAndMaintenanceAmt>",
-  );
-});
-
-Deno.test("utilities maps to UtilitiesAmt", () => {
-  const result = form8829.build({ utilities: 3000 });
-  assertStringIncludes(result, "<UtilitiesAmt>3000</UtilitiesAmt>");
-});
-
-Deno.test("other_expenses maps to OtherExpensesAmt", () => {
-  const result = form8829.build({ other_expenses: 600 });
-  assertStringIncludes(result, "<OtherExpensesAmt>600</OtherExpensesAmt>");
-});
-
-Deno.test("gross_income_limit maps to GrossIncomeLimitAmt", () => {
-  const result = form8829.build({ gross_income_limit: 80000 });
-  assertStringIncludes(
-    result,
-    "<GrossIncomeLimitAmt>80000</GrossIncomeLimitAmt>",
-  );
-});
-
-Deno.test("prior_year_operating_carryover maps to PYOperatingExpensesCyovAmt", () => {
-  const result = form8829.build({ prior_year_operating_carryover: 200 });
-  assertStringIncludes(
-    result,
-    "<PYOperatingExpensesCyovAmt>200</PYOperatingExpensesCyovAmt>",
-  );
-});
-
-Deno.test("home_fmv_or_basis maps to HomeFMVOrAdjBasisAmt", () => {
-  const result = form8829.build({ home_fmv_or_basis: 350000 });
-  assertStringIncludes(
-    result,
-    "<HomeFMVOrAdjBasisAmt>350000</HomeFMVOrAdjBasisAmt>",
-  );
-});
-
-Deno.test("prior_year_depreciation_carryover maps to PYDepreciationCyovAmt", () => {
-  const result = form8829.build({ prior_year_depreciation_carryover: 300 });
-  assertStringIncludes(
-    result,
-    "<PYDepreciationCyovAmt>300</PYDepreciationCyovAmt>",
-  );
-});
-
-// ---------------------------------------------------------------------------
-// Section 5: Sparse output
-// ---------------------------------------------------------------------------
-
-Deno.test("single known field emits only that element, absent fields omitted", () => {
-  const result = form8829.build({ total_area: 2000 });
-  assertStringIncludes(
-    result,
-    "<TotalAreaOfHomeSqFtCnt>2000</TotalAreaOfHomeSqFtCnt>",
-  );
-  assertNotIncludes(result, "<BusinessAreaOfHomeSqFtCnt>");
-  assertNotIncludes(result, "<MortgageInterestAmt>");
-  assertNotIncludes(result, "<RentAmt>");
-});
-
-Deno.test("two fields present: only those two elements emitted", () => {
-  const result = form8829.build({ total_area: 2000, mortgage_interest: 12000 });
-  assertStringIncludes(
-    result,
-    "<TotalAreaOfHomeSqFtCnt>2000</TotalAreaOfHomeSqFtCnt>",
-  );
-  assertStringIncludes(
-    result,
-    "<MortgageInterestAmt>12000</MortgageInterestAmt>",
-  );
-  assertNotIncludes(result, "<BusinessAreaOfHomeSqFtCnt>");
-  assertNotIncludes(result, "<InsuranceAmt>");
-});
-
-// ---------------------------------------------------------------------------
-// Section 6: All fields present
-// ---------------------------------------------------------------------------
-
-const allFields = {
-  total_area: 2000,
-  business_area: 400,
-  mortgage_interest: 12000,
-  insurance: 1500,
-  rent: 18000,
-  repairs_maintenance: 500,
-  utilities: 3000,
-  other_expenses: 600,
-  gross_income_limit: 80000,
-  prior_year_operating_carryover: 200,
-  home_fmv_or_basis: 350000,
-  prior_year_depreciation_carryover: 300,
-};
-
-Deno.test("all 12 fields present: output wrapped in IRS8829 tag", () => {
-  const result = form8829.build(allFields);
-  assertStringIncludes(result, "<IRS8829>");
-  assertStringIncludes(result, "</IRS8829>");
-});
-
-Deno.test("all 12 fields present: all elements emitted", () => {
-  const result = form8829.build(allFields);
-  assertStringIncludes(
-    result,
-    "<TotalAreaOfHomeSqFtCnt>2000</TotalAreaOfHomeSqFtCnt>",
-  );
-  assertStringIncludes(
-    result,
-    "<BusinessAreaOfHomeSqFtCnt>400</BusinessAreaOfHomeSqFtCnt>",
-  );
-  assertStringIncludes(
-    result,
-    "<MortgageInterestAmt>12000</MortgageInterestAmt>",
-  );
-  assertStringIncludes(result, "<InsuranceAmt>1500</InsuranceAmt>");
-  assertStringIncludes(result, "<RentAmt>18000</RentAmt>");
-  assertStringIncludes(
-    result,
-    "<RepairsAndMaintenanceAmt>500</RepairsAndMaintenanceAmt>",
-  );
-  assertStringIncludes(result, "<UtilitiesAmt>3000</UtilitiesAmt>");
-  assertStringIncludes(result, "<OtherExpensesAmt>600</OtherExpensesAmt>");
-  assertStringIncludes(
-    result,
-    "<GrossIncomeLimitAmt>80000</GrossIncomeLimitAmt>",
-  );
-  assertStringIncludes(
-    result,
-    "<PYOperatingExpensesCyovAmt>200</PYOperatingExpensesCyovAmt>",
-  );
-  assertStringIncludes(
-    result,
-    "<HomeFMVOrAdjBasisAmt>350000</HomeFMVOrAdjBasisAmt>",
-  );
-  assertStringIncludes(
-    result,
-    "<PYDepreciationCyovAmt>300</PYDepreciationCyovAmt>",
-  );
-});
-
-// ---------------------------------------------------------------------------
-// Section 7: Non-number fields are silently ignored
-// ---------------------------------------------------------------------------
-
-Deno.test("string field is silently ignored", () => {
-  const result = form8829.build({ method: "simplified", total_area: 2000 });
-  assertStringIncludes(
-    result,
-    "<TotalAreaOfHomeSqFtCnt>2000</TotalAreaOfHomeSqFtCnt>",
-  );
-  assertNotIncludes(result, "method");
-  assertNotIncludes(result, "simplified");
 });

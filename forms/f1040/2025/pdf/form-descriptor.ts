@@ -1,11 +1,36 @@
+import type { PDFDocument, PDFPage } from "pdf-lib";
+import type { FilerIdentity } from "../../mef/header.ts";
+import type { Form3800DocumentParts } from "../mef/forms/f3800_document.ts";
+
 export type PdfFieldEntry =
   /** `printZero` prints an explicit "0" instead of the default blank-when-zero convention
    *  (used for lines like Form 8606 line 2 where 0 is a meaningful declared value). */
-  | { readonly kind: "text";         readonly domainKey: string; readonly pdfField: string; readonly extraPdfFields?: readonly string[]; readonly printZero?: boolean }
-  | { readonly kind: "checkbox";     readonly domainKey: string; readonly pdfField: string; readonly extraPdfFields?: readonly string[] }
+  | {
+    readonly kind: "text";
+    readonly domainKey: string;
+    readonly pdfField: string;
+    readonly extraPdfFields?: readonly string[];
+    readonly printZero?: boolean;
+  }
+  | {
+    readonly kind: "checkbox";
+    readonly domainKey: string;
+    readonly pdfField: string;
+    readonly extraPdfFields?: readonly string[];
+  }
   /** Checks the box only when the domain value equals `whenValue` (string comparison). */
-  | { readonly kind: "checkboxWhen"; readonly domainKey: string; readonly pdfField: string; readonly whenValue: string }
-  | { readonly kind: "radio";        readonly domainKey: string; readonly pdfField: string; readonly valueMap: Readonly<Record<string, string>> };
+  | {
+    readonly kind: "checkboxWhen";
+    readonly domainKey: string;
+    readonly pdfField: string;
+    readonly whenValue: string;
+  }
+  | {
+    readonly kind: "radio";
+    readonly domainKey: string;
+    readonly pdfField: string;
+    readonly valueMap: Readonly<Record<string, string>>;
+  };
 
 export interface PdfRowDescriptor {
   readonly domainKey: string;
@@ -38,6 +63,11 @@ export interface PdfRowDescriptor {
 export interface PdfFormDescriptor {
   readonly pendingKey: string;
   readonly pdfUrl: string;
+  /** Project finalized cross-document worksheet values onto this form's fields. */
+  readonly projectFields?: (
+    fields: Record<string, unknown>,
+    allPending: Record<string, Record<string, unknown>>,
+  ) => Record<string, unknown>;
   /**
    * Optional gate: render the form only when this domain key holds a value.
    * For forms whose pending slot also collects context deposited on every
@@ -50,10 +80,28 @@ export interface PdfFormDescriptor {
    */
   readonly instances?: (
     fields: Record<string, unknown>,
+    filer?: FilerIdentity,
+    allPending?: Record<string, Record<string, unknown>>,
+    preparedForm3800?: Form3800DocumentParts,
   ) => ReadonlyArray<Record<string, unknown>>;
+  /** Zero-based source PDF pages to retain for a particular instance. */
+  readonly pageIndices?: (fields: Record<string, unknown>) => readonly number[];
   readonly fields: ReadonlyArray<PdfFieldEntry>;
   readonly filerFields?: ReadonlyArray<PdfFieldEntry>;
   readonly rows?: PdfRowDescriptor;
+  /** Draw form-specific text on copied form pages before they are merged. */
+  readonly decoratePages?: (
+    document: PDFDocument,
+    pages: readonly PDFPage[],
+    fields: Record<string, unknown>,
+    filer: FilerIdentity | undefined,
+  ) => Promise<void> | void;
+  /** Append form-specific supporting pages after the filled IRS form. */
+  readonly appendSupplementalPages?: (
+    document: PDFDocument,
+    fields: Record<string, unknown>,
+    filer: FilerIdentity | undefined,
+  ) => Promise<void> | void;
   /**
    * Inclusion gate evaluated against the form's pending fields. When provided,
    * the form is only emitted if this returns true. Used for forms that are
@@ -68,4 +116,6 @@ export interface PdfFormDescriptor {
     fields: Record<string, unknown>,
     allPending?: Record<string, Record<string, unknown>>,
   ) => boolean;
+  /** Emit a required zero-value form when includeWhen is explicitly true. */
+  readonly includeWhenNoMappedData?: boolean;
 }

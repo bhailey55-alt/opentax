@@ -1,353 +1,324 @@
 import { assertEquals, assertThrows } from "@std/assert";
-import { form8839 } from "./index.ts";
+import {
+  finalizedReturnCreditContextSchema,
+  form8839,
+  inputSchema,
+  prepareForm8839Credit,
+  settleForm8839Credit,
+} from "./index.ts";
+import { FilingStatus } from "../../../types.ts";
 
-function compute(input: Record<string, unknown>) {
-  return form8839.compute({ taxYear: 2025, formType: "f1040" }, input);
+const nodeContext = { taxYear: 2025, formType: "f1040" } as const;
+
+function domesticChild(amount: number) {
+  return {
+    first_name: "Ada",
+    last_name: "Taxpayer",
+    birth_year: 2020,
+    ssn: "111223334",
+    final_decree: {
+      source_document_id: "decree-1",
+      finalization_date: "2025-07-15",
+      issuing_jurisdiction: "TX",
+      child_origin: "US" as const,
+    },
+    expenses: amount === 0 ? [] : [{
+      source_document_id: "invoice-1",
+      paid_date: "2025-03-12",
+      category: "attorney_fee" as const,
+      payee: "Adoption Counsel",
+      amount,
+      reimbursed_amount: 0,
+    }],
+  };
 }
 
-function findOutput(result: ReturnType<typeof compute>, nodeType: string) {
-  return result.outputs.find((o) => o.nodeType === nodeType);
+function finalizedContext(overrides: Record<string, unknown> = {}) {
+  return finalizedReturnCreditContextSchema.parse({
+    form1040_line11b_agi: 200_000,
+    form1040_line18_tax_before_credits: 20_000,
+    magi_additions: {
+      puerto_rico_excluded_income: 0,
+      form2555_line45: 0,
+      form2555_line50: 0,
+      form4563_line15: 0,
+    },
+    child_credit_priority: { basis: "form1040_line19", amount: 2_000 },
+    schedule3_priority: {
+      line1: 1_000,
+      line2: 0,
+      line3: 0,
+      line4: 0,
+      line5b: 0,
+      line6d: 0,
+      line6f: 0,
+      line6g: 0,
+      line6l: 0,
+      line6m: 0,
+    },
+    ...overrides,
+  });
 }
 
-// ─── Smoke test ───────────────────────────────────────────────────────────────
-
-Deno.test("smoke: empty children array produces no outputs", () => {
-  const result = compute({
-    children: [],
-    magi: 100000,
-  });
-  assertEquals(result.outputs.length, 0);
+Deno.test("Form 8839: inactive input emits no credit", () => {
+  assertEquals(form8839.compute(nodeContext, {}).outputs, []);
 });
 
-// ─── Full credit — MAGI below phase-out ───────────────────────────────────────
-// The adoption credit is entirely nonrefundable since TY2013 (ATRA §104).
-// All credit goes to Schedule 3 line 6c; line30_refundable_adoption does not exist.
-
-Deno.test("credit: full credit when MAGI below phase-out threshold", () => {
-  // MAGI $200,000 — below $259,190 phase-out start → no reduction
-  // Expenses $15,000, max $17,280 → credit $15,000
-  // Nonrefundable: min($15,000, tax_liability $12,000) = $12,000
-  const result = compute({
-    children: [{ qualified_expenses: 15000, special_needs: false }],
-    magi: 200000,
-    income_tax_liability: 12000,
-  });
-
-  const s3 = findOutput(result, "schedule3");
-  assertEquals(s3?.fields.line6c_adoption_credit, 12000);
-  assertEquals(findOutput(result, "f1040"), undefined);
-});
-
-Deno.test("credit: expenses above max are capped at $17,280 per child", () => {
-  // Expenses $20,000 > $17,280 → capped at $17,280
-  // Nonrefundable: min($17,280, tax_liability $15,000) = $15,000
-  const result = compute({
-    children: [{ qualified_expenses: 20000, special_needs: false }],
-    magi: 100000,
-    income_tax_liability: 15000,
-  });
-
-  const s3 = findOutput(result, "schedule3");
-  assertEquals(s3?.fields.line6c_adoption_credit, 15000);
-  assertEquals(findOutput(result, "f1040"), undefined);
-});
-
-// ─── Partial credit — MAGI in phase-out range ─────────────────────────────────
-
-Deno.test("credit: partial credit when MAGI is in phase-out range", () => {
-  // MAGI $279,190 — midpoint of phase-out ($259,190 to $299,190)
-  // Phase-out fraction = (279190 - 259190) / 40000 = 0.500
-  // Expenses $17,280 → allowed = $17,280 × (1 - 0.500) = $8,640
-  // Nonrefundable: min($8,640, tax_liability $10,000) = $8,640
-  const result = compute({
-    children: [{ qualified_expenses: 17280, special_needs: false }],
-    magi: 279190,
-    income_tax_liability: 10000,
-  });
-
-  const s3 = findOutput(result, "schedule3");
-  assertEquals(s3?.fields.line6c_adoption_credit, 8640);
-  assertEquals(findOutput(result, "f1040"), undefined);
-});
-
-Deno.test("credit: partial phase-out — fraction rounded to 3 decimal places", () => {
-  // MAGI $269,190 → fraction = 10000/40000 = 0.250
-  // Expenses $12,000 → allowed = $12,000 × (1 - 0.250) = $9,000
-  // Nonrefundable: min($9,000, tax_liability $8,000) = $8,000
-  const result = compute({
-    children: [{ qualified_expenses: 12000, special_needs: false }],
-    magi: 269190,
-    income_tax_liability: 8000,
-  });
-
-  const s3 = findOutput(result, "schedule3");
-  assertEquals(s3?.fields.line6c_adoption_credit, 8000);
-  assertEquals(findOutput(result, "f1040"), undefined);
-});
-
-// ─── No credit — MAGI above phase-out ────────────────────────────────────────
-
-Deno.test("credit: no credit when MAGI at or above phase-out end ($299,190)", () => {
-  const result = compute({
-    children: [{ qualified_expenses: 17280, special_needs: false }],
-    magi: 299190,
-    income_tax_liability: 20000,
-  });
-
-  assertEquals(result.outputs.length, 0);
-});
-
-Deno.test("credit: no credit when MAGI above phase-out end", () => {
-  const result = compute({
-    children: [{ qualified_expenses: 17280, special_needs: false }],
-    magi: 350000,
-    income_tax_liability: 50000,
-  });
-
-  assertEquals(result.outputs.length, 0);
-});
-
-// ─── Special needs child ──────────────────────────────────────────────────────
-
-Deno.test("special needs: full credit $17,280 even with zero qualified expenses", () => {
-  // Special needs → max credit regardless of expenses
-  // MAGI $150,000 (no phase-out), tax_liability $20,000
-  // Nonrefundable: min($17,280, $20,000) = $17,280
-  const result = compute({
-    children: [{ qualified_expenses: 0, special_needs: true }],
-    magi: 150000,
-    income_tax_liability: 20000,
-  });
-
-  const s3 = findOutput(result, "schedule3");
-  assertEquals(s3?.fields.line6c_adoption_credit, 17280);
-  assertEquals(findOutput(result, "f1040"), undefined);
-});
-
-Deno.test("special needs: full credit with prior year credit already claimed", () => {
-  // Prior credit $3,000 → remaining = $17,280 - $3,000 = $14,280
-  // MAGI $100,000, tax_liability $15,000
-  // Nonrefundable: min($14,280, $15,000) = $14,280
-  const result = compute({
-    children: [{ qualified_expenses: 0, special_needs: true, prior_year_credit: 3000 }],
-    magi: 100000,
-    income_tax_liability: 15000,
-  });
-
-  const s3 = findOutput(result, "schedule3");
-  assertEquals(s3?.fields.line6c_adoption_credit, 14280);
-  assertEquals(findOutput(result, "f1040"), undefined);
-});
-
-// ─── Employer benefit exclusion (Part III) ────────────────────────────────────
-
-Deno.test("exclusion: adoption_benefits below max are fully excluded", () => {
-  // $10,000 employer benefits, max exclusion $17,280 → fully excluded → no taxable benefits
-  // $0 qualified expenses → no credit
-  const result = compute({
-    adoption_benefits: 10000,
-    children: [{ qualified_expenses: 0, special_needs: false }],
-    magi: 200000,
-    income_tax_liability: 5000,
-  });
-
-  assertEquals(findOutput(result, "f1040"), undefined);
-  assertEquals(findOutput(result, "schedule3"), undefined);
-});
-
-Deno.test("exclusion: adoption_benefits above max produce taxable income on f1040 line1f", () => {
-  // $20,000 employer benefits, max exclusion $17,280 → taxable = $20,000 - $17,280 = $2,720
-  const result = compute({
-    adoption_benefits: 20000,
-    children: [{ qualified_expenses: 0, special_needs: false }],
-    magi: 200000,
-    income_tax_liability: 5000,
-  });
-
-  const f1040 = findOutput(result, "f1040");
-  assertEquals(f1040?.fields.line1f_taxable_adoption_benefits, 2720);
-});
-
-Deno.test("exclusion: phase-out reduces both exclusion and taxable amount", () => {
-  // $17,280 employer benefits, MAGI $279,190 (50% phased out)
-  // Excluded = $17,280 × 0.500 = $8,640; taxable = $17,280 - $8,640 = $8,640
-  const result = compute({
-    adoption_benefits: 17280,
-    children: [{ qualified_expenses: 0, special_needs: false }],
-    magi: 279190,
-    income_tax_liability: 5000,
-  });
-
-  const f1040 = findOutput(result, "f1040");
-  assertEquals(f1040?.fields.line1f_taxable_adoption_benefits, 8640);
-});
-
-// ─── Combined credit + exclusion ─────────────────────────────────────────────
-
-Deno.test("combined: credit and exclusion together — employer paid part, taxpayer paid rest", () => {
-  // Employer paid $5,000 (Box 12T) → fully excluded (no phase-out)
-  // Taxpayer paid $10,000 qualified expenses → credit $10,000
-  // Nonrefundable: min($10,000, tax_liability $15,000) = $10,000
-  // No taxable benefits (employer amount fully excluded)
-  const result = compute({
-    adoption_benefits: 5000,
-    children: [{ qualified_expenses: 10000, special_needs: false }],
-    magi: 200000,
-    income_tax_liability: 15000,
-  });
-
-  const s3 = findOutput(result, "schedule3");
-  assertEquals(s3?.fields.line6c_adoption_credit, 10000);
-  assertEquals(findOutput(result, "f1040"), undefined);
-});
-
-// ─── Multi-child ─────────────────────────────────────────────────────────────
-
-Deno.test("multi-child: two children, credits aggregated", () => {
-  // Child 1: $8,000 expenses; Child 2: $6,000 expenses
-  // Total credit = $14,000, limited by tax_liability $15,000 → $14,000
-  const result = compute({
-    children: [
-      { qualified_expenses: 8000, special_needs: false },
-      { qualified_expenses: 6000, special_needs: false },
-    ],
-    magi: 200000,
-    income_tax_liability: 15000,
-  });
-
-  const s3 = findOutput(result, "schedule3");
-  assertEquals(s3?.fields.line6c_adoption_credit, 14000);
-  assertEquals(findOutput(result, "f1040"), undefined);
-});
-
-// ─── Credit limit by tax liability ───────────────────────────────────────────
-
-Deno.test("credit limit: nonrefundable credit capped by income tax liability", () => {
-  // $17,280 credit, tax liability $3,000 → capped at $3,000
-  const result = compute({
-    children: [{ qualified_expenses: 17280, special_needs: false }],
-    magi: 100000,
-    income_tax_liability: 3000,
-  });
-
-  const s3 = findOutput(result, "schedule3");
-  assertEquals(s3?.fields.line6c_adoption_credit, 3000);
-  assertEquals(findOutput(result, "f1040"), undefined);
-});
-
-Deno.test("credit limit: zero tax liability means no credit output", () => {
-  // $17,280 credit, tax liability $0 → nonrefundable = 0 → no outputs
-  const result = compute({
-    children: [{ qualified_expenses: 17280, special_needs: false }],
-    magi: 100000,
-    income_tax_liability: 0,
-  });
-
-  assertEquals(result.outputs.length, 0);
-});
-
-// ─── MFS restriction ─────────────────────────────────────────────────────────
-
-Deno.test("mfs: no credit for MFS filers without exception", () => {
-  const result = compute({
-    children: [{ qualified_expenses: 15000, special_needs: false }],
-    magi: 100000,
-    income_tax_liability: 10000,
-    filing_status: "mfs",
-  });
-
-  assertEquals(result.outputs.length, 0);
-});
-
-// ─── Validation ───────────────────────────────────────────────────────────────
-
-Deno.test("validation: rejects negative qualified_expenses", () => {
-  assertThrows(() =>
-    compute({
-      children: [{ qualified_expenses: -100, special_needs: false }],
-      magi: 100000,
-    })
+Deno.test("Form 8839: active typed child remains fail-closed before return credit", () => {
+  assertThrows(
+    () =>
+      form8839.compute(nodeContext, {
+        children: [domesticChild(15_000)],
+        filing_status: FilingStatus.Single,
+      }),
+    Error,
+    "source-verified adoption eligibility",
   );
 });
 
-Deno.test("validation: rejects negative magi", () => {
-  assertThrows(() =>
-    compute({
-      children: [{ qualified_expenses: 5000, special_needs: false }],
-      magi: -1,
-    })
+Deno.test("Form 8839: employer benefits remain fail-closed", () => {
+  assertThrows(
+    () => form8839.compute(nodeContext, { adoption_benefits: 5_000 }),
+    Error,
+    "source-verified adoption eligibility",
+  );
+  assertThrows(
+    () =>
+      settleForm8839Credit(
+        prepareForm8839Credit({ adoption_benefits: 5_000 }),
+        finalizedContext(),
+      ),
+    Error,
+    "Part III employer-benefit exclusion",
   );
 });
 
-Deno.test("validation: rejects negative adoption_benefits", () => {
-  assertThrows(() =>
-    compute({
-      adoption_benefits: -500,
-      children: [],
-      magi: 100000,
-    })
-  );
+Deno.test("Form 8839: source stage derives receipt amount before final return exists", () => {
+  const prepared = prepareForm8839Credit({ children: [domesticChild(15_000)] });
+  assertEquals(prepared.perChild[0]?.line3, 0);
+  assertEquals(prepared.perChild[0]?.line5, 15_000);
+  assertEquals(prepared.perChild[0]?.line6, 15_000);
+  const settled = settleForm8839Credit(prepared, finalizedContext());
+  assertEquals(settled.magi, 200_000);
+  assertEquals(settled.line11c, 5_000);
+  assertEquals(settled.line13, 5_000);
+  assertEquals(settled.line14, 10_000);
+  assertEquals(settled.creditLimitWorksheet.line2, 20_000);
+  assertEquals(settled.creditLimitWorksheet.line3, 3_000);
+  assertEquals(settled.line17, 10_000);
+  assertEquals(settled.line18, 10_000);
 });
 
-// ─── Output routing smoke test ────────────────────────────────────────────────
+Deno.test("Form 8839: negative finalized AGI leaves the credit unphased", () => {
+  const settled = settleForm8839Credit(
+    prepareForm8839Credit({ children: [domesticChild(15_000)] }),
+    finalizedContext({ form1040_line11b_agi: -2_000 }),
+  );
+  assertEquals(settled.magi, -2_000);
+  assertEquals(settled.fraction, 0);
+  assertEquals(settled.line13, 5_000);
+  assertEquals(settled.line14, 10_000);
+});
 
-Deno.test("routing: outputs are directed only to schedule3 and f1040 node types", () => {
-  const result = compute({
-    children: [{ qualified_expenses: 10000, special_needs: false }],
-    magi: 150000,
-    income_tax_liability: 10000,
-  });
+Deno.test("Form 8839: refundable line 13 survives zero nonrefundable capacity", () => {
+  const settled = settleForm8839Credit(
+    prepareForm8839Credit({ children: [domesticChild(15_000)] }),
+    finalizedContext({ form1040_line18_tax_before_credits: 1_000 }),
+  );
+  assertEquals(settled.creditLimitWorksheet.line3, 3_000);
+  assertEquals(settled.creditLimitWorksheet.line4, 0);
+  assertEquals(settled.line13, 5_000);
+  assertEquals(settled.line17, 0);
+  assertEquals(settled.line18, 0);
+});
 
-  const nodeTypes = result.outputs.map((o) => o.nodeType);
-  for (const nt of nodeTypes) {
-    assertEquals(
-      nt === "schedule3" || nt === "f1040",
-      true,
-      `Unexpected nodeType: ${nt}`,
+Deno.test("Form 8839: TY2025 MAGI phaseout boundaries reconcile both credit portions", () => {
+  const prepared = prepareForm8839Credit({ children: [domesticChild(15_000)] });
+  const cases = [
+    { agi: 259_190, fraction: 0, line13: 5_000, line14: 10_000 },
+    { agi: 279_190, fraction: 0.5, line13: 5_000, line14: 2_500 },
+    { agi: 299_190, fraction: 1, line13: 0, line14: 0 },
+  ];
+  for (const expected of cases) {
+    const settled = settleForm8839Credit(
+      prepared,
+      finalizedContext({ form1040_line11b_agi: expected.agi }),
     );
+    assertEquals(settled.fraction, expected.fraction);
+    assertEquals(settled.line13, expected.line13);
+    assertEquals(settled.line14, expected.line14);
   }
 });
 
-// ─── prior_year_credit reduces available credit ───────────────────────────────
-
-Deno.test("credit: prior_year_credit reduces per-child baseline", () => {
-  // Max $17,280; prior $10,000 → remaining = $7,280
-  // Expenses $12,000 > remaining → capped at $7,280
-  // Nonrefundable: min($7,280, tax_liability $10,000) = $7,280
-  const result = compute({
-    children: [{ qualified_expenses: 12_000, special_needs: false, prior_year_credit: 10_000 }],
-    magi: 100_000,
-    income_tax_liability: 10_000,
-  });
-
-  const s3 = findOutput(result, "schedule3");
-  assertEquals(s3?.fields.line6c_adoption_credit, 7_280);
-  assertEquals(findOutput(result, "f1040"), undefined);
+Deno.test("Form 8839: MAGI adds Puerto Rico, Form 2555 and Form 4563 amounts", () => {
+  const settled = settleForm8839Credit(
+    prepareForm8839Credit({ children: [domesticChild(15_000)] }),
+    finalizedContext({
+      form1040_line11b_agi: 250_000,
+      magi_additions: {
+        puerto_rico_excluded_income: 2_000,
+        form2555_line45: 3_000,
+        form2555_line50: 4_000,
+        form4563_line15: 1_000,
+      },
+    }),
+  );
+  assertEquals(settled.magi, 260_000);
+  assertEquals(settled.fraction, 0.02);
 });
 
-Deno.test("credit: prior_year_credit equal to max leaves zero remaining — no output", () => {
-  // Prior credit = $17,280 = max → remaining = 0 → no credit
-  const result = compute({
-    children: [{ qualified_expenses: 15_000, special_needs: false, prior_year_credit: 17_280 }],
-    magi: 100_000,
-    income_tax_liability: 10_000,
-  });
-
-  assertEquals(result.outputs.length, 0);
+Deno.test("Form 8839: prescribed other credits consume capacity, not adoption itself", () => {
+  const settled = settleForm8839Credit(
+    prepareForm8839Credit({ children: [domesticChild(15_000)] }),
+    finalizedContext({
+      form1040_line18_tax_before_credits: 11_000,
+      child_credit_priority: {
+        basis: "schedule8812_worksheet_b_line14",
+        amount: 2_000,
+      },
+      schedule3_priority: {
+        line1: 1_000,
+        line2: 0,
+        line3: 0,
+        line4: 0,
+        line5b: 500,
+        line6d: 0,
+        line6f: 0,
+        line6g: 0,
+        line6l: 0,
+        line6m: 500,
+      },
+    }),
+  );
+  assertEquals(settled.creditLimitWorksheet.line3, 4_000);
+  assertEquals(settled.creditLimitWorksheet.line4, 7_000);
+  assertEquals(settled.line17, 7_000);
+  assertEquals(settled.line18, 7_000);
 });
 
-// ─── Phase-out boundary at $259,190 ──────────────────────────────────────────
-
-Deno.test("credit: MAGI exactly at phase-out start ($259,190) — full credit, no reduction", () => {
-  // Fraction = 0 → no phase-out reduction
-  // Expenses $10,000, tax_liability $10,000 → nonrefundable $10,000
-  const result = compute({
-    children: [{ qualified_expenses: 10_000, special_needs: false }],
-    magi: 259_190,
-    income_tax_liability: 10_000,
+Deno.test("Form 8839: receipt ledger nets documented reimbursement", () => {
+  const child = domesticChild(15_000);
+  const prepared = prepareForm8839Credit({
+    children: [{
+      ...child,
+      expenses: [{
+        ...child.expenses[0]!,
+        reimbursed_amount: 4_000,
+        reimbursement_source_document_id: "w2-plan-payment-1",
+      }],
+    }],
   });
+  assertEquals(prepared.perChild[0]?.line5, 11_000);
+  const settled = settleForm8839Credit(prepared, finalizedContext());
+  assertEquals(settled.line14, 6_000);
+});
 
-  const s3 = findOutput(result, "schedule3");
-  assertEquals(s3?.fields.line6c_adoption_credit, 10_000);
-  assertEquals(findOutput(result, "f1040"), undefined);
+Deno.test("Form 8839: expense and prior-return guards reject impossible source", () => {
+  const child = domesticChild(1_000);
+  assertThrows(
+    () =>
+      prepareForm8839Credit({
+        children: [{
+          ...child,
+          expenses: [{
+            ...child.expenses[0]!,
+            reimbursed_amount: 1_001,
+            reimbursement_source_document_id: "employer-1",
+          }],
+        }],
+      }),
+    Error,
+    "reimbursement exceeds expense",
+  );
+  assertThrows(
+    () =>
+      prepareForm8839Credit({
+        children: [{
+          ...child,
+          expenses: [{ ...child.expenses[0]!, paid_date: "2023-12-31" }],
+        }],
+      }),
+    Error,
+    "2024/2025 payment dates",
+  );
+  assertThrows(
+    () =>
+      prepareForm8839Credit({
+        children: [{
+          ...domesticChild(0),
+          prior_filed_form8839: {
+            source_document_id: "filed-8839-2024",
+            line3: 0,
+            line6: 17_281,
+          },
+        }],
+      }),
+    Error,
+    "prior-year credit cannot exceed",
+  );
+});
+
+Deno.test("Form 8839: special-needs source-stage amount uses remaining maximum", () => {
+  const prepared = prepareForm8839Credit({
+    children: [{
+      ...domesticChild(0),
+      special_needs_determination: {
+        source_document_id: "state-determination-1",
+        agency_name: "Texas Child Welfare",
+        determination_date: "2025-06-01",
+      },
+      prior_filed_form8839: {
+        source_document_id: "filed-8839-2024",
+        line3: 2_000,
+        line6: 3_000,
+      },
+    }],
+  });
+  assertEquals(prepared.perChild[0]?.line3, 5_000);
+  assertEquals(prepared.perChild[0]?.line5, 12_280);
+});
+
+Deno.test("Form 8839: old asserted child and direct MAGI/limit fields reject", () => {
+  assertThrows(() =>
+    inputSchema.parse({
+      children: [{ qualified_expenses: 15_000, special_needs: false }],
+    })
+  );
+  assertEquals(inputSchema.safeParse({ magi: 200_000 }).success, false);
+  assertEquals(
+    inputSchema.safeParse({ credit_limit_worksheet_line5: 10_000 })
+      .success,
+    false,
+  );
+});
+
+Deno.test("Form 8839: settlement needs each finalized return component", () => {
+  assertThrows(() =>
+    finalizedReturnCreditContextSchema.parse({
+      form1040_line11b_agi: 200_000,
+      form1040_line18_tax_before_credits: 20_000,
+    })
+  );
+});
+
+Deno.test("Form 8839: settlement does not infer absent territory MAGI additions as zero", () => {
+  const prepared = prepareForm8839Credit({
+    children: [domesticChild(15_000)],
+  });
+  for (
+    const missing of [
+      "puerto_rico_excluded_income",
+      "form4563_line15",
+    ] as const
+  ) {
+    const base = finalizedContext();
+    const additions = { ...base.magi_additions };
+    delete (additions as Partial<typeof additions>)[missing];
+    assertThrows(() =>
+      settleForm8839Credit(prepared, {
+        ...base,
+        magi_additions: additions,
+      })
+    );
+  }
 });

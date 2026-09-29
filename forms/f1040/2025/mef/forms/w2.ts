@@ -115,9 +115,11 @@ function buildW2(
   context: MefBuildContext,
   index: number,
 ): string {
-  const employerEin = digits(
-    requiredEmployerValue(item, "employer_ein", index),
-  );
+  const enteredEmployerEin = requiredEmployerValue(item, "employer_ein", index);
+  if (!/^\d{2}-?\d{7}$/.test(enteredEmployerEin)) {
+    throw new Error(`W-2 ${index + 1} MeF employer EIN must be nine digits`);
+  }
+  const employerEin = digits(enteredEmployerEin);
   const employerName = requiredEmployerValue(item, "employer_name", index);
   const employee = employeeIdentity(item, context, index);
 
@@ -154,6 +156,13 @@ function buildW2(
     item.box13_third_party_sick === true
       ? element("ThirdPartySickPayInd", "X")
       : "",
+    ...(item.box14_entries ?? []).map(({ description, amount }) =>
+      elements("OtherDeductionsBenefitsGrp", [
+        element("Desc", description),
+        element("Amt", amount),
+      ])
+    ),
+    element("StandardOrNonStandardCd", "S"),
   ]);
 }
 

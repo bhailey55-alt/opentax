@@ -1,9 +1,56 @@
 import { assertEquals, assertThrows } from "@std/assert";
 import type { z } from "zod";
 import { FilingStatus } from "../../types.ts";
-import { f8863, type itemSchema } from "./index.ts";
+import {
+  calculateAocStudentLines,
+  calculateForm8863AllowableRatio,
+  calculateForm8863Lines,
+  f8863,
+  type itemSchema,
+} from "./index.ts";
 
 type F8863Item = z.infer<typeof itemSchema>;
+
+let nextEducationSourceFixtureId = 1;
+
+function educationSource(
+  expenses: number,
+  sourceId = String(nextEducationSourceFixtureId++),
+) {
+  return {
+    filing_details: {
+      first_name: "Test",
+      last_name: "Student",
+      name_control: "STUD",
+      institutions: [{
+        name: "Test University",
+        us_address: {
+          line1: "1 College Way",
+          city: "Austin",
+          state: "TX",
+          zip: "78701",
+        },
+        current_year_1098t_received: true,
+        prior_year_1098t_received: false,
+        ein: "12-3456789",
+      }],
+    },
+    education_expense_workpaper: {
+      form1098t_box1_payments: expenses,
+      form1098t_box5_scholarships: 0,
+      form1098t_document_id: `1098T-TEST-${sourceId}`,
+      payment_record_ids: [`PAYMENT-TEST-${sourceId}`],
+      paid_tuition_required_fees: expenses,
+      paid_course_materials_to_institution: 0,
+      paid_course_materials_elsewhere: 0,
+      outside_materials_needed_for_course: false,
+      institution_materials_required_for_enrollment: false,
+      tax_free_assistance_applied_to_expenses: 0,
+      qualified_expense_refunds: 0,
+      expenses_used_for_other_tax_benefits: 0,
+    },
+  };
+}
 
 // ============================================================
 // Helpers
@@ -14,6 +61,7 @@ type F8863Item = z.infer<typeof itemSchema>;
  * with zero expenses so no credit is produced unless overridden.
  */
 function minimalAocItem(overrides: Partial<F8863Item> = {}): F8863Item {
+  const expenses = overrides.aoc_adjusted_expenses ?? 0;
   return {
     credit_type: "aoc",
     student_name: "Test Student",
@@ -24,6 +72,7 @@ function minimalAocItem(overrides: Partial<F8863Item> = {}): F8863Item {
     aoc_adjusted_expenses: 0,
     filer_magi: 0,
     filing_status: FilingStatus.Single,
+    ...educationSource(expenses),
     ...overrides,
   };
 }
@@ -32,23 +81,115 @@ function minimalAocItem(overrides: Partial<F8863Item> = {}): F8863Item {
  * Minimal LLC student item — no AOC eligibility flags required.
  */
 function minimalLlcItem(overrides: Partial<F8863Item> = {}): F8863Item {
+  const expenses = overrides.llc_adjusted_expenses ?? 0;
   return {
     credit_type: "llc",
     student_name: "Test Student",
     llc_adjusted_expenses: 0,
     filer_magi: 0,
     filing_status: FilingStatus.Single,
+    ...educationSource(expenses),
     ...overrides,
   };
 }
 
 function compute(items: F8863Item[]) {
-  return f8863.compute({ taxYear: 2025, formType: "f1040" }, { f8863s: items });
+  return f8863.compute({ taxYear: 2025, formType: "f1040" }, {
+    f8863s: items,
+    credit_limit_worksheet: {
+      form1040_line18_tax: 100_000,
+      schedule3_line1_foreign_tax_credit: 0,
+      schedule3_line2_dependent_care_credit: 0,
+      schedule3_line6d: 0,
+      schedule3_line6l: 0,
+    },
+  });
+}
+
+function computeWithTaxCapacity(
+  items: F8863Item[],
+  line18Tax: number,
+  priorCredits: {
+    line1: number;
+    line2: number;
+    line6d: number;
+    line6l: number;
+  },
+) {
+  return f8863.compute({ taxYear: 2025, formType: "f1040" }, {
+    f8863s: items,
+    credit_limit_worksheet: {
+      form1040_line18_tax: line18Tax,
+      schedule3_line1_foreign_tax_credit: priorCredits.line1,
+      schedule3_line2_dependent_care_credit: priorCredits.line2,
+      schedule3_line6d: priorCredits.line6d,
+      schedule3_line6l: priorCredits.line6l,
+    },
+  });
 }
 
 function findOutput(result: ReturnType<typeof compute>, nodeType: string) {
   return result.outputs.find((o) => o.nodeType === nodeType);
 }
+
+Deno.test("positive Form 8863 calculation needs sourced education expenses", () => {
+  assertThrows(
+    () => compute([minimalAocItem({
+      aoc_adjusted_expenses: 4_000,
+      education_expense_workpaper: undefined,
+    })]),
+    Error,
+    "education expense workpaper",
+  );
+  assertThrows(
+    () => compute([minimalLlcItem({
+      llc_adjusted_expenses: 5_000,
+      education_expense_workpaper: {
+        ...educationSource(5_000).education_expense_workpaper,
+        qualified_expense_refunds: 500,
+      },
+    })]),
+    Error,
+    "do not reconcile to the education expense workpaper",
+  );
+});
+
+Deno.test("Form 8863 cannot claim the same education source for two students", () => {
+  const first = minimalAocItem({
+    student_name: "First Student",
+    student_ssn: "111-22-3333",
+    aoc_adjusted_expenses: 4_000,
+  });
+  const second = minimalLlcItem({
+    student_name: "Second Student",
+    student_ssn: "444-55-6666",
+    llc_adjusted_expenses: 5_000,
+  });
+  const firstSource = first.education_expense_workpaper!;
+  const secondSource = second.education_expense_workpaper!;
+  assertThrows(
+    () => compute([first, {
+      ...second,
+      education_expense_workpaper: {
+        ...secondSource,
+        form1098t_document_id: firstSource.form1098t_document_id,
+      },
+    }]),
+    Error,
+    "cannot reuse a Form 1098-T document reference",
+  );
+  assertThrows(
+    () => compute([first, {
+      ...second,
+      education_expense_workpaper: {
+        ...secondSource,
+        payment_record_ids: firstSource.payment_record_ids,
+      },
+    }]),
+    Error,
+    "cannot reuse an education payment reference",
+  );
+});
 
 // ============================================================
 // 1. Input Schema Validation
@@ -127,7 +268,9 @@ Deno.test("aoc_routes_refundable_to_f1040: AOC with expenses routes refundable p
   ]);
   const f1040Out = findOutput(result, "f1040");
   assertEquals(
-    Math.round((f1040Out!.fields as Record<string, number>).line29_refundable_aoc),
+    Math.round(
+      (f1040Out!.fields as Record<string, number>).line29_refundable_aoc,
+    ),
     1000,
   );
 });
@@ -139,7 +282,9 @@ Deno.test("aoc_routes_nonrefundable_to_schedule3: AOC with expenses routes nonre
   ]);
   const sch3Out = findOutput(result, "schedule3");
   assertEquals(
-    Math.round((sch3Out!.fields as Record<string, number>).line3_education_credit),
+    Math.round(
+      (sch3Out!.fields as Record<string, number>).line3_education_credit,
+    ),
     1500,
   );
 });
@@ -225,7 +370,9 @@ Deno.test("llc_routes_to_schedule3: LLC with expenses routes to schedule3 line3_
   ]);
   const sch3Out = findOutput(result, "schedule3");
   assertEquals(
-    Math.round((sch3Out!.fields as Record<string, number>).line3_education_credit),
+    Math.round(
+      (sch3Out!.fields as Record<string, number>).line3_education_credit,
+    ),
     1000,
   );
 });
@@ -284,7 +431,8 @@ Deno.test("aoc_aggregates_across_students: two AOC students sum their credits", 
   ]);
   assertEquals(
     Math.round(
-      (findOutput(result, "f1040")!.fields as Record<string, number>).line29_refundable_aoc,
+      (findOutput(result, "f1040")!.fields as Record<string, number>)
+        .line29_refundable_aoc,
     ),
     2000,
   );
@@ -349,13 +497,17 @@ Deno.test("aoc_and_llc_same_return_different_students: both credits appear on sa
   ]);
   // refundable AOC: $4,000 expenses → $2,500 → 40% = $1,000 refundable
   assertEquals(
-    Math.round((findOutput(result, "f1040")!.fields as Record<string, number>).line29_refundable_aoc),
+    Math.round(
+      (findOutput(result, "f1040")!.fields as Record<string, number>)
+        .line29_refundable_aoc,
+    ),
     1000,
   );
   // Engine emits separate schedule3 outputs: AOC nonrefundable $1,500 + LLC $1,000
   const sch3Outputs = result.outputs.filter((o) => o.nodeType === "schedule3");
   const sch3Total = sch3Outputs.reduce(
-    (sum, o) => sum + (o.fields as Record<string, number>).line3_education_credit,
+    (sum, o) =>
+      sum + (o.fields as Record<string, number>).line3_education_credit,
     0,
   );
   assertEquals(Math.round(sch3Total), 2500);
@@ -371,7 +523,8 @@ Deno.test("aoc_magi_zero_full_credit: MAGI $0 single yields full $1,000 refundab
   ]);
   assertEquals(
     Math.round(
-      (findOutput(result, "f1040")!.fields as Record<string, number>).line29_refundable_aoc,
+      (findOutput(result, "f1040")!.fields as Record<string, number>)
+        .line29_refundable_aoc,
     ),
     1000,
   );
@@ -387,7 +540,8 @@ Deno.test("aoc_magi_at_lower_bound_single_80k: MAGI exactly $80k single yields f
   ]);
   assertEquals(
     Math.round(
-      (findOutput(result, "f1040")!.fields as Record<string, number>).line29_refundable_aoc,
+      (findOutput(result, "f1040")!.fields as Record<string, number>)
+        .line29_refundable_aoc,
     ),
     1000,
   );
@@ -405,13 +559,15 @@ Deno.test("aoc_magi_mid_phaseout_single_85k: MAGI $85k single yields 50% credit 
   ]);
   assertEquals(
     Math.round(
-      (findOutput(result, "f1040")!.fields as Record<string, number>).line29_refundable_aoc,
+      (findOutput(result, "f1040")!.fields as Record<string, number>)
+        .line29_refundable_aoc,
     ),
     500,
   );
   assertEquals(
     Math.round(
-      (findOutput(result, "schedule3")!.fields as Record<string, number>).line3_education_credit,
+      (findOutput(result, "schedule3")!.fields as Record<string, number>)
+        .line3_education_credit,
     ),
     750,
   );
@@ -449,7 +605,8 @@ Deno.test("aoc_magi_mfj_at_lower_bound_160k: MAGI exactly $160k MFJ yields full 
   ]);
   assertEquals(
     Math.round(
-      (findOutput(result, "f1040")!.fields as Record<string, number>).line29_refundable_aoc,
+      (findOutput(result, "f1040")!.fields as Record<string, number>)
+        .line29_refundable_aoc,
     ),
     1000,
   );
@@ -466,13 +623,15 @@ Deno.test("aoc_magi_mfj_mid_phaseout_170k: MAGI $170k MFJ yields 50% credit ($50
   ]);
   assertEquals(
     Math.round(
-      (findOutput(result, "f1040")!.fields as Record<string, number>).line29_refundable_aoc,
+      (findOutput(result, "f1040")!.fields as Record<string, number>)
+        .line29_refundable_aoc,
     ),
     500,
   );
   assertEquals(
     Math.round(
-      (findOutput(result, "schedule3")!.fields as Record<string, number>).line3_education_credit,
+      (findOutput(result, "schedule3")!.fields as Record<string, number>)
+        .line3_education_credit,
     ),
     750,
   );
@@ -585,7 +744,8 @@ Deno.test("llc_magi_mfj_at_lower_bound_160k: MAGI exactly $160k MFJ yields full 
     }),
   ]);
   assertEquals(
-    (findOutput(result, "schedule3")!.fields as Record<string, number>).line3_education_credit,
+    (findOutput(result, "schedule3")!.fields as Record<string, number>)
+      .line3_education_credit,
     2000,
   );
 });
@@ -600,7 +760,8 @@ Deno.test("llc_magi_mfj_mid_phaseout_170k: MAGI $170k MFJ yields $1,000 LLC cred
     }),
   ]);
   assertEquals(
-    (findOutput(result, "schedule3")!.fields as Record<string, number>).line3_education_credit,
+    (findOutput(result, "schedule3")!.fields as Record<string, number>)
+      .line3_education_credit,
     1000,
   );
 });
@@ -666,7 +827,8 @@ Deno.test("aoc_all_gates_pass_allows_refundable: all eligibility flags correct �
   ]);
   assertEquals(
     Math.round(
-      (findOutput(result, "f1040")!.fields as Record<string, number>).line29_refundable_aoc,
+      (findOutput(result, "f1040")!.fields as Record<string, number>)
+        .line29_refundable_aoc,
     ),
     1000,
   );
@@ -680,12 +842,16 @@ Deno.test("aoc_gate_felony_does_not_block_llc_path: felony disqualifies AOC but 
       aoc_adjusted_expenses: 4000,
       felony_drug_conviction: true,
       llc_adjusted_expenses: 5000,
+      ...educationSource(5000),
       filer_magi: 0,
     }),
   ]);
   assertEquals(findOutput(result, "f1040"), undefined);
   assertEquals(
-    Math.round((findOutput(result, "schedule3")!.fields as Record<string, number>).line3_education_credit),
+    Math.round(
+      (findOutput(result, "schedule3")!.fields as Record<string, number>)
+        .line3_education_credit,
+    ),
     1000,
   );
 });
@@ -707,7 +873,8 @@ Deno.test("kiddie_rule_true_aoc_fully_nonrefundable: entire AOC goes to schedule
   // Entire $2,500 credit is nonrefundable on schedule3
   assertEquals(
     Math.round(
-      (findOutput(result, "schedule3")!.fields as Record<string, number>).line3_education_credit,
+      (findOutput(result, "schedule3")!.fields as Record<string, number>)
+        .line3_education_credit,
     ),
     2500,
   );
@@ -723,15 +890,73 @@ Deno.test("kiddie_rule_false_allows_refundable: taxpayer_under_24_no_refundable_
   ]);
   assertEquals(
     Math.round(
-      (findOutput(result, "f1040")!.fields as Record<string, number>).line29_refundable_aoc,
+      (findOutput(result, "f1040")!.fields as Record<string, number>)
+        .line29_refundable_aoc,
     ),
     1000,
   );
   assertEquals(
     Math.round(
-      (findOutput(result, "schedule3")!.fields as Record<string, number>).line3_education_credit,
+      (findOutput(result, "schedule3")!.fields as Record<string, number>)
+        .line3_education_credit,
     ),
     1500,
+  );
+});
+
+Deno.test("return-level under-24 answer cannot conflict between AOC students", () => {
+  assertThrows(
+    () =>
+      compute([
+        minimalAocItem({
+          student_name: "Alice",
+          aoc_adjusted_expenses: 4_000,
+          taxpayer_under_24_no_refundable_aoc: true,
+        }),
+        minimalAocItem({
+          student_name: "Bob",
+          aoc_adjusted_expenses: 4_000,
+          taxpayer_under_24_no_refundable_aoc: false,
+        }),
+      ]),
+    Error,
+    "conflicting taxpayer under-24 answers",
+  );
+  assertThrows(
+    () =>
+      compute([
+        minimalAocItem({
+          student_name: "Alice",
+          aoc_adjusted_expenses: 4_000,
+          taxpayer_under_24_no_refundable_aoc: true,
+        }),
+        minimalAocItem({
+          student_name: "Bob",
+          aoc_adjusted_expenses: 4_000,
+        }),
+      ]),
+    Error,
+    "conflicting taxpayer under-24 answers",
+  );
+});
+
+Deno.test("same student SSN cannot claim AOC and LLC on one return", () => {
+  assertThrows(
+    () =>
+      compute([
+        minimalAocItem({
+          student_name: "Alice",
+          student_ssn: "222-33-4444",
+          aoc_adjusted_expenses: 4_000,
+        }),
+        minimalLlcItem({
+          student_name: "Alice",
+          student_ssn: "222334444",
+          llc_adjusted_expenses: 2_000,
+        }),
+      ]),
+    Error,
+    "same student SSN twice",
   );
 });
 
@@ -887,11 +1112,17 @@ Deno.test("edge_hoh_below_ceiling_86k_has_credit: HOH at $86k yields partial cre
     }),
   ]);
   assertEquals(
-    Math.round((findOutput(result, "f1040")!.fields as Record<string, number>).line29_refundable_aoc),
+    Math.round(
+      (findOutput(result, "f1040")!.fields as Record<string, number>)
+        .line29_refundable_aoc,
+    ),
     400,
   );
   assertEquals(
-    Math.round((findOutput(result, "schedule3")!.fields as Record<string, number>).line3_education_credit),
+    Math.round(
+      (findOutput(result, "schedule3")!.fields as Record<string, number>)
+        .line3_education_credit,
+    ),
     600,
   );
 });
@@ -932,12 +1163,16 @@ Deno.test("edge_aoc_ineligible_student_llc_expenses_routes_llc_credit: AOC-ineli
       aoc_adjusted_expenses: 4000,
       aoc_claimed_4_prior_years: true,
       llc_adjusted_expenses: 5000,
+      ...educationSource(5000),
       filer_magi: 0,
     }),
   ]);
   assertEquals(findOutput(result, "f1040"), undefined);
   assertEquals(
-    Math.round((findOutput(result, "schedule3")!.fields as Record<string, number>).line3_education_credit),
+    Math.round(
+      (findOutput(result, "schedule3")!.fields as Record<string, number>)
+        .line3_education_credit,
+    ),
     1000,
   );
 });
@@ -954,11 +1189,17 @@ Deno.test("edge_phase_out_fraction_3_decimal_places: non-round MAGI fraction com
     }),
   ]);
   assertEquals(
-    Math.round((findOutput(result, "f1040")!.fields as Record<string, number>).line29_refundable_aoc),
+    Math.round(
+      (findOutput(result, "f1040")!.fields as Record<string, number>)
+        .line29_refundable_aoc,
+    ),
     267,
   );
   assertEquals(
-    Math.round((findOutput(result, "schedule3")!.fields as Record<string, number>).line3_education_credit),
+    Math.round(
+      (findOutput(result, "schedule3")!.fields as Record<string, number>)
+        .line3_education_credit,
+    ),
     401,
   );
 });
@@ -977,7 +1218,8 @@ Deno.test("edge_kiddie_rule_with_phase_out: kiddie rule + partial phase-out both
   // $1,250 entirely nonrefundable
   assertEquals(
     Math.round(
-      (findOutput(result, "schedule3")!.fields as Record<string, number>).line3_education_credit,
+      (findOutput(result, "schedule3")!.fields as Record<string, number>)
+        .line3_education_credit,
     ),
     1250,
   );
@@ -996,6 +1238,7 @@ Deno.test("smoke_test_full_scenario: two students (AOC + LLC), single filer MAGI
 
   const result = compute([
     {
+      ...educationSource(4000),
       credit_type: "aoc" as const,
       student_name: "Alice AOC",
       aoc_claimed_4_prior_years: false,
@@ -1014,6 +1257,7 @@ Deno.test("smoke_test_full_scenario: two students (AOC + LLC), single filer MAGI
       taxpayer_under_24_no_refundable_aoc: false,
     },
     {
+      ...educationSource(10000),
       credit_type: "llc" as const,
       student_name: "Bob LLC",
       llc_adjusted_expenses: 10000,
@@ -1025,15 +1269,175 @@ Deno.test("smoke_test_full_scenario: two students (AOC + LLC), single filer MAGI
   // Refundable AOC: 40% × $1,250 = $500
   assertEquals(
     Math.round(
-      (findOutput(result, "f1040")!.fields as Record<string, number>).line29_refundable_aoc,
+      (findOutput(result, "f1040")!.fields as Record<string, number>)
+        .line29_refundable_aoc,
     ),
     500,
   );
 
-  // Engine emits separate schedule3 outputs: AOC nonrefundable $750 + LLC $1,000
+  // Form 8863 line 19 combines AOC $750 and LLC $1,000 after the worksheet.
   const sch3Outputs = result.outputs.filter((o) => o.nodeType === "schedule3");
   const sch3Values = sch3Outputs.map(
-    (o) => Math.round((o.fields as Record<string, number>).line3_education_credit),
+    (o) =>
+      Math.round((o.fields as Record<string, number>).line3_education_credit),
   ).sort((a, b) => a - b);
-  assertEquals(sch3Values, [750, 1000]);
+  assertEquals(sch3Values, [1750]);
+});
+
+Deno.test("Form 8863 line 19 is capped by tax after specified prior credits", () => {
+  const result = computeWithTaxCapacity(
+    [
+      minimalAocItem({ aoc_adjusted_expenses: 4_000 }),
+      minimalLlcItem({ llc_adjusted_expenses: 5_000 }),
+    ],
+    1_400,
+    { line1: 100, line2: 200, line6d: 50, line6l: 50 },
+  );
+  assertEquals(
+    (findOutput(result, "f1040")!.fields as Record<string, number>)
+      .line29_refundable_aoc,
+    1_000,
+  );
+  assertEquals(
+    (findOutput(result, "schedule3")!.fields as Record<string, number>)
+      .line3_education_credit,
+    1_000,
+  );
+});
+
+Deno.test("Form 8863 does not invent tax capacity when the worksheet is missing", () => {
+  assertThrows(
+    () =>
+      f8863.compute({ taxYear: 2025, formType: "f1040" }, {
+        f8863s: [minimalAocItem({ aoc_adjusted_expenses: 4_000 })],
+      }),
+    Error,
+    "needs Credit Limit Worksheet",
+  );
+  const result = computeWithTaxCapacity(
+    [
+      minimalAocItem({ aoc_adjusted_expenses: 4_000 }),
+    ],
+    0,
+    { line1: 0, line2: 0, line6d: 0, line6l: 0 },
+  );
+  assertEquals(findOutput(result, "schedule3"), undefined);
+  assertEquals(
+    (findOutput(result, "f1040")!.fields as Record<string, number>)
+      .line29_refundable_aoc,
+    1_000,
+  );
+});
+
+Deno.test("Form 8863 rejects missing or conflicting return-level facts", () => {
+  assertThrows(
+    () =>
+      compute([minimalAocItem({
+        aoc_adjusted_expenses: 4_000,
+        filer_magi: undefined,
+      })]),
+    Error,
+    "needs filing status and MAGI",
+  );
+  assertThrows(
+    () =>
+      compute([
+        minimalAocItem({ aoc_adjusted_expenses: 4_000, filer_magi: 30_000 }),
+        minimalLlcItem({ llc_adjusted_expenses: 5_000, filer_magi: 31_000 }),
+      ]),
+    Error,
+    "conflicting return-level MAGI",
+  );
+});
+
+Deno.test("Form 8863 filing details require one structured institution address", () => {
+  const valid = minimalAocItem({
+    filing_details: {
+      first_name: "Test",
+      last_name: "Student",
+      name_control: "STUD",
+      institutions: [{
+        name: "State University",
+        us_address: {
+          line1: "1 College Road",
+          city: "Austin",
+          state: "TX",
+          zip: "78701",
+        },
+        current_year_1098t_received: true,
+        prior_year_1098t_received: false,
+        ein: "12-3456789",
+      }],
+    },
+  });
+  assertEquals(f8863.inputSchema.safeParse({ f8863s: [valid] }).success, true);
+  assertEquals(
+    f8863.inputSchema.safeParse({
+      f8863s: [{
+        ...valid,
+        filing_details: {
+          ...valid.filing_details,
+          institutions: [{
+            ...valid.filing_details!.institutions[0],
+            us_address: undefined,
+          }],
+        },
+      }],
+    }).success,
+    false,
+  );
+});
+
+Deno.test("Form 8863 AOC Part III lines 27 through 30 follow both tiers", () => {
+  assertEquals(calculateAocStudentLines(1_500), {
+    line27: 1_500,
+    line28: 0,
+    line29: 0,
+    line30: 1_500,
+  });
+  assertEquals(calculateAocStudentLines(2_500), {
+    line27: 2_500,
+    line28: 500,
+    line29: 125,
+    line30: 2_125,
+  });
+  assertEquals(calculateAocStudentLines(5_000).line30, 2_500);
+});
+
+Deno.test("Form 8863 rounds the allowable phase-out ratio, not its complement", () => {
+  assertEquals(
+    calculateForm8863AllowableRatio(
+      88_335,
+      false,
+      160_000,
+      180_000,
+      80_000,
+      90_000,
+    ),
+    0.167,
+  );
+});
+
+Deno.test("Form 8863 parts I and II agree with capped return outputs", () => {
+  const lines = calculateForm8863Lines({
+    f8863s: [
+      minimalAocItem({ aoc_adjusted_expenses: 4_000, filer_magi: 85_000 }),
+      minimalLlcItem({ llc_adjusted_expenses: 5_000, filer_magi: 85_000 }),
+    ],
+    credit_limit_worksheet: {
+      form1040_line18_tax: 900,
+      schedule3_line1_foreign_tax_credit: 100,
+      schedule3_line2_dependent_care_credit: 0,
+      schedule3_line6d: 0,
+      schedule3_line6l: 0,
+    },
+  });
+  assertEquals(lines?.line1, 2_500);
+  assertEquals(lines?.line6, 0.5);
+  assertEquals(lines?.line7, 1_250);
+  assertEquals(lines?.line8, 500);
+  assertEquals(lines?.line9, 750);
+  assertEquals(lines?.line10, 5_000);
+  assertEquals(lines?.line18, 500);
+  assertEquals(lines?.line19, 800);
 });

@@ -1,4 +1,4 @@
-import { assertEquals, assertStringIncludes } from "@std/assert";
+import { assertEquals, assertStringIncludes, assertThrows } from "@std/assert";
 import { scheduleD } from "./schedule_d.ts";
 
 function assertNotIncludes(actual: string, expected: string) {
@@ -98,7 +98,10 @@ Deno.test("line19_unrecaptured_1250 maps to UnrcptrSect1250GainWrkshtAmt", () =>
 });
 
 Deno.test("line13_cap_gain_distrib maps to CapitalGainDistributionsAmt", () => {
-  const result = scheduleD.build({ line13_cap_gain_distrib: 800 });
+  const result = scheduleD.build({
+    line13_cap_gain_distrib: 800,
+    print_line16_combined: 800,
+  });
   assertStringIncludes(
     result,
     "<CapitalGainDistributionsAmt>800</CapitalGainDistributionsAmt>",
@@ -106,7 +109,10 @@ Deno.test("line13_cap_gain_distrib maps to CapitalGainDistributionsAmt", () => {
 });
 
 Deno.test("line_12_cap_gain_dist maps to CapitalGainDistributionsAmt", () => {
-  const result = scheduleD.build({ line_12_cap_gain_dist: 900 });
+  const result = scheduleD.build({
+    line_12_cap_gain_dist: 900,
+    print_line16_combined: 900,
+  });
   assertStringIncludes(
     result,
     "<CapitalGainDistributionsAmt>900</CapitalGainDistributionsAmt>",
@@ -227,6 +233,7 @@ Deno.test("single known scalar field: only that element emitted, absent fields o
 // ---------------------------------------------------------------------------
 
 const allFields = {
+  print_line16_combined: 0,
   line_1a_proceeds: 100,
   line_1a_cost: 80,
   line_4_other_st: 200,
@@ -316,6 +323,7 @@ Deno.test(
     const result = scheduleD.build({
       line13_cap_gain_distrib: 400,
       line_12_cap_gain_dist: 200,
+      print_line16_combined: 600,
     });
     assertStringIncludes(
       result,
@@ -324,16 +332,9 @@ Deno.test(
   },
 );
 
-Deno.test(
-  "line13_cap_gain_distrib(400) alone emits CapitalGainDistributionsAmt=400",
-  () => {
-    const result = scheduleD.build({ line13_cap_gain_distrib: 400 });
-    assertStringIncludes(
-      result,
-      "<CapitalGainDistributionsAmt>400</CapitalGainDistributionsAmt>",
-    );
-  },
-);
+Deno.test("distribution-only return does not emit Schedule D", () => {
+  assertEquals(scheduleD.build({ line13_cap_gain_distrib: 400 }), "");
+});
 
 // ---------------------------------------------------------------------------
 // Section 11: Transaction arrays, filing_status, booleans ignored
@@ -374,17 +375,28 @@ Deno.test("filing_status is silently ignored", () => {
   assertNotIncludes(result, "MFJ");
 });
 
-Deno.test("box2c_qsbs boolean field is silently ignored", () => {
-  const result = scheduleD.build({
-    box2c_qsbs: 5000,
-    line_14_carryover: 1000,
-  });
-  assertStringIncludes(
-    result,
-    "<LTCapitalLossCarryoverAmt>1000</LTCapitalLossCarryoverAmt>",
+Deno.test("positive Form 1099-DIV box 2c cannot silently disappear from Schedule D XML", () => {
+  assertThrows(
+    () =>
+      scheduleD.build({
+        box2c_qsbs: 5_000,
+        line_14_carryover: 1_000,
+      }),
+    Error,
+    "Form 6251 line 2h preference",
   );
-  assertNotIncludes(result, "box2c_qsbs");
-  assertNotIncludes(result, "5000");
+  assertThrows(
+    () =>
+      scheduleD.build({
+        transaction: {
+          adjustment_codes: "Q",
+          gain_loss: 1_000,
+        },
+        line_14_carryover: 1_000,
+      }),
+    Error,
+    "Form 6251 line 2h preference",
+  );
 });
 
 Deno.test("capital_loss_carryover is silently ignored", () => {

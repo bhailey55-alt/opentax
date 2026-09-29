@@ -1,5 +1,11 @@
 import { assertEquals, assertThrows } from "@std/assert";
 import { k1Partnership } from "./index.ts";
+import {
+  ForeignTaxCreditMethod,
+  foreignTaxItemSchema,
+  ForeignTaxKind,
+  IncomeCategory,
+} from "../../intermediate/forms/form_1116/index.ts";
 
 function minimalItem(overrides: Record<string, unknown> = {}) {
   return {
@@ -8,23 +14,398 @@ function minimalItem(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function compute(items: ReturnType<typeof minimalItem>[]) {
-  return k1Partnership.compute({ taxYear: 2025, formType: "f1040" }, { k1_partnerships: items });
+function compute(items: Record<string, unknown>[]) {
+  return k1Partnership.compute(
+    { taxYear: 2025, formType: "f1040" },
+    k1Partnership.inputSchema.parse({ k1_partnerships: items }),
+  );
 }
 
 function findOutput(result: ReturnType<typeof compute>, nodeType: string) {
   return result.outputs.find((o) => o.nodeType === nodeType);
 }
 
+Deno.test("partnership K-3 passive interest and line 12 reduction reconcile to K-1", () => {
+  const k3 = {
+    partnership_ein: "123456789",
+    k1_source_document_reference: "2025 K-1",
+    k3_source_document_reference: "2025 K-3",
+    part_ii_section_1_line_6_passive_interest: 1_000,
+    part_ii_section_1_line_24_passive_total: 1_000,
+    part_iii_section_4_line_1_foreign_tax: 50,
+    part_iii_section_4_line_2_tax_reduction: 10,
+    irs_country_code: "DE",
+    tax_paid_date: "2025-06-15",
+    foreign_tax_currency: {
+      currency_code: "EUR",
+      amount: 40,
+      usd_per_foreign_unit: 1.25,
+      source_document_reference: "2025 K-3",
+    },
+    no_other_income_tax_or_reduction_on_k3_confirmed: true as const,
+  };
+  const source = {
+    partnership_ein: "123456789",
+    source_document_reference: "2025 K-1",
+    box5_interest: 1_000,
+    box16_foreign_income: 1_000,
+    box16_foreign_tax: 50,
+    box16_foreign_income_category: IncomeCategory.Passive,
+    box16_foreign_tax_irs_country_code: "DE",
+    box16_foreign_tax_paid_or_accrued_date: "2025-06-15",
+    box16_foreign_tax_kind: ForeignTaxKind.Interest,
+    box16_foreign_tax_credit_method: ForeignTaxCreditMethod.Paid,
+    schedule_k3_passive_interest: k3,
+  };
+  const output = findOutput(compute([minimalItem(source)]), "form_1116");
+  const item = foreignTaxItemSchema.parse(
+    (output?.fields.foreign_tax_items as unknown[])[0],
+  );
+  assertEquals(item?.schedule_k3_line12_reduction?.amount, 10);
+  assertEquals(item?.partnership_k3_passive_interest, k3);
+  assertThrows(
+    () => compute([minimalItem({ ...source, box5_interest: 999 })]),
+    Error,
+    "must match its K-1",
+  );
+  assertThrows(
+    () =>
+      compute([minimalItem({
+        ...source,
+        schedule_k3_passive_interest: {
+          ...k3,
+          part_iii_section_4_line_2_tax_reduction: 60,
+        },
+      })]),
+    Error,
+    "must match its K-1",
+  );
+});
+
+Deno.test("partnership K-1 portfolio boxes feed Form 4952 only when affirmed", () => {
+  const item = minimalItem({
+    box5_interest: 200,
+    box6a_ordinary_dividends: 300,
+    box6b_qualified_dividends: 100,
+  });
+  assertEquals(findOutput(compute([item]), "form4952"), undefined);
+  const fields = compute([{
+    ...item,
+    investment_property_for_form4952: true,
+  }]).outputs.filter((output) => output.nodeType === "form4952")
+    .map((output) => output.fields);
+  assertEquals(fields, [
+    { source_k1_interest: 200 },
+    { source_k1_dividends: 300 },
+    { source_k1_qualified_dividends: 100 },
+  ]);
+});
+
+Deno.test("partnership K-1 box 20 code B routes only allowed investment depreciation to Form 4952", () => {
+  const codeB = {
+    reported_amount: 600,
+    allowed_deduction_amount: 600,
+    allowed_deduction_kind: "depreciation",
+    nonpassive_investment_property: true,
+    issuer_crosswalk: {
+      issuer_supplement_reference: "2025 K-1 investment supplement",
+      issuer_reported_amount: 600,
+      same_expense_as_box13_code_i_confirmed: true,
+      box13_code_i_statement_reference: "2025 code I statement",
+      royalty_property_description: "Partnership mineral royalty",
+    },
+  };
+  const item = minimalItem({
+    partnership_ein: "123456789",
+    source_document_reference: "2025 K-1 and investment-property statement",
+    investment_property_for_form4952: true,
+    box7_royalties: 1_000,
+    box7_royalty_reporting: {
+      tsj: "T",
+      property_description: "Partnership mineral royalty",
+      portfolio_nonpassive: true,
+      form_1099_payments_made: false,
+    },
+    box13_code_i_royalty_deduction: {
+      reported_amount: 600,
+      allowed_amount: 600,
+      statement_reference: "2025 code I statement",
+      expense_kind: "depreciation",
+      basis_workpaper_reference: "2025 basis review",
+      at_risk_workpaper_reference: "2025 at-risk review",
+    },
+    box20_code_b_investment_expenses: codeB,
+  });
+  const result = compute([item]);
+  assertEquals(
+    result.outputs.filter((entry) => entry.nodeType === "form4952").map(
+      (entry) => entry.fields,
+    ),
+    [
+      { source_k1_royalties: 1_000 },
+      { source_k1_allowed_investment_expenses: 600 },
+    ],
+  );
+  const scheduleERows = findOutput(result, "schedule_e")?.fields.schedule_es as
+    | unknown[]
+    | undefined;
+  assertEquals(scheduleERows?.length, 1);
+  assertEquals(findOutput(compute([item]), "schedule1"), undefined);
+  assertThrows(
+    () =>
+      compute([{
+        ...item,
+        box20_code_b_investment_expenses: {
+          ...codeB,
+          issuer_crosswalk: {
+            ...codeB.issuer_crosswalk,
+            box13_code_i_statement_reference: "different code I item",
+          },
+        },
+      }]),
+    Error,
+    "same issuer-identified",
+  );
+  assertThrows(
+    () =>
+      compute([{
+        ...item,
+        box13_code_i_royalty_deduction: undefined,
+      }]),
+    Error,
+    "same issuer-identified",
+  );
+});
+
+Deno.test("partnership K-1 box 13 code H routes separately stated investment interest", () => {
+  const item = minimalItem({
+    partnership_ein: "123456789",
+    source_document_reference: "2025 K-1 box 13 code H",
+    box13_code_h_investment_interest: 425,
+  });
+  assertEquals(findOutput(compute([item]), "form4952")?.fields, {
+    source_k1_investment_interest: 425,
+  });
+  assertThrows(() =>
+    compute([minimalItem({
+      box13_code_h_investment_interest: 425,
+    })])
+  );
+});
+
+Deno.test("partnership K-1 box 20 code B rejects unsourced or disallowed expenses", () => {
+  const expense = {
+    reported_amount: 1_000,
+    allowed_deduction_amount: 600,
+    allowed_deduction_kind: "depletion",
+    nonpassive_investment_property: true,
+  };
+  assertThrows(() =>
+    compute([minimalItem({
+      box20_code_b_investment_expenses: expense,
+    })])
+  );
+  assertThrows(() =>
+    compute([minimalItem({
+      partnership_ein: "123456789",
+      source_document_reference: "2025 K-1 statement",
+      box20_code_b_investment_expenses: {
+        ...expense,
+        allowed_deduction_amount: 1_100,
+      },
+    })])
+  );
+  assertThrows(() =>
+    compute([minimalItem({
+      partnership_ein: "123456789",
+      source_document_reference: "2025 K-1 statement",
+      box20_code_b_investment_expenses: {
+        ...expense,
+        allowed_deduction_kind: "miscellaneous_itemized",
+      },
+    })])
+  );
+});
+
+Deno.test("partnership K-1 box 15 code Z needs source identity and passive classification", () => {
+  assertThrows(() =>
+    compute([minimalItem({ box15_code_z_orphan_drug_credit: 1_250 })])
+  );
+  compute([minimalItem({
+    partnership_ein: "123456789",
+    source_document_reference: "2025 Partnership K-1",
+    box15_code_z_orphan_drug_credit: 1_250,
+    orphan_drug_credit_subject_to_passive_activity_limit: false,
+  })]);
+});
+
+Deno.test("partnership K-1 code Z reaches source-backed Form 3800", () => {
+  const item = minimalItem({
+    partnership_ein: "123456789",
+    source_document_reference: "2025 partnership K-1",
+    box15_code_z_orphan_drug_credit: 1_250,
+    orphan_drug_credit_subject_to_passive_activity_limit: false,
+  });
+  assertEquals(findOutput(compute([item]), "f3800")?.fields, {
+    f8820_k1_credit_entries: [{
+      source_type: "partnership",
+      source_ein: "123456789",
+      source_document_reference: "2025 partnership K-1",
+      credit_amount: 1_250,
+      subject_to_passive_activity_limit: false,
+    }],
+  });
+  assertEquals(
+    findOutput(
+      compute([{
+        ...item,
+        orphan_drug_credit_subject_to_passive_activity_limit: true,
+      }]),
+      "f3800",
+    ),
+    undefined,
+  );
+  assertEquals(
+    findOutput(
+      compute([{
+        ...item,
+        orphan_drug_credit_subject_to_passive_activity_limit: true,
+      }]),
+      "form8582cr",
+    )?.fields,
+    {
+      required_orphan_drug_k1_credits: [{
+        source_type: "partnership",
+        source_ein: "123456789",
+        source_document_reference: "2025 partnership K-1",
+        credit_amount: 1_250,
+      }],
+    },
+  );
+});
+
+Deno.test("partnership K-1 box 15 code AD reaches Form 3800 line 1i source", () => {
+  assertThrows(() =>
+    compute([minimalItem({
+      box15_code_ad_new_markets_credit: 1_250,
+    })])
+  );
+  const item = minimalItem({
+    partnership_ein: "123456789",
+    source_document_reference: "2025 partnership K-1",
+    box15_code_ad_new_markets_credit: 1_250,
+    new_markets_credit_subject_to_passive_activity_limit: false,
+  });
+  assertEquals(findOutput(compute([item]), "f3800")?.fields, {
+    f8874_k1_credit_entries: [{
+      source_type: "partnership",
+      source_ein: "123456789",
+      source_document_reference: "2025 partnership K-1",
+      credit_amount: 1_250,
+      subject_to_passive_activity_limit: false,
+    }],
+  });
+  assertEquals(
+    findOutput(
+      compute([{
+        ...item,
+        new_markets_credit_subject_to_passive_activity_limit: true,
+      }]),
+      "form8582cr",
+    )?.fields,
+    {
+      required_new_markets_k1_credits: [{
+        source_type: "partnership",
+        source_ein: "123456789",
+        source_document_reference: "2025 partnership K-1",
+        credit_amount: 1_250,
+      }],
+    },
+  );
+});
+
+Deno.test("partnership K-1 box 15 code K needs source identity and passive classification", () => {
+  assertThrows(() =>
+    compute([minimalItem({ box15_code_k_disabled_access_credit: 500 })])
+  );
+  const result = compute([minimalItem({
+    partnership_ein: "123456789",
+    source_document_reference: "2025 Partnership K-1",
+    box15_code_k_disabled_access_credit: 500.25,
+    disabled_access_credit_subject_to_passive_activity_limit: true,
+  })]);
+  assertEquals(findOutput(result, "disabled_access_limit")?.fields, {
+    required_disabled_access_k1_credits: [{
+      source_type: "partnership",
+      source_ein: "123456789",
+      source_document_reference: "2025 Partnership K-1",
+      credit_amount: 500.25,
+    }],
+  });
+  assertThrows(() =>
+    compute([minimalItem({
+      partnership_ein: "123456789",
+      source_document_reference: "2025 Partnership K-1",
+      box15_code_k_disabled_access_credit: 500.251,
+      disabled_access_credit_subject_to_passive_activity_limit: true,
+    })])
+  );
+});
+
+Deno.test("nonpassive partnership K-1 code K reaches source-backed Form 3800", () => {
+  const result = compute([minimalItem({
+    partnership_ein: "123456789",
+    source_document_reference: "2025 Partnership K-1",
+    box15_code_k_disabled_access_credit: 500.25,
+    disabled_access_credit_subject_to_passive_activity_limit: false,
+  })]);
+  assertEquals(findOutput(result, "disabled_access_limit")?.fields, {
+    f8826_credit_entries: [{
+      source_type: "partnership",
+      source_ein: "123456789",
+      source_document_reference: "2025 Partnership K-1",
+      credit_amount: 500.25,
+      subject_to_passive_activity_limit: false,
+    }],
+  });
+  assertEquals(findOutput(result, "form8582cr"), undefined);
+});
+
+Deno.test("box 10 retains each partnership's Form 4797 line 2 amount", () => {
+  const result = compute([
+    minimalItem({ partnership_name: "Partner One", box10_net_1231: 10_000 }),
+    minimalItem({ partnership_name: "Partner Two", box10_net_1231: -2_000 }),
+  ]);
+  const fields = findOutput(result, "form4797")?.fields;
+  assertEquals(fields?.section_1231_gain, 8_000);
+  assertEquals(fields?.k1_1231_rows, [
+    { source: "partnership", entity_name: "Partner One", gain_loss: 10_000 },
+    { source: "partnership", entity_name: "Partner Two", gain_loss: -2_000 },
+  ]);
+});
+
 // ── 1. Input schema validation ────────────────────────────────────────────────
 
 Deno.test("empty array throws", () => {
-  assertThrows(() => k1Partnership.compute({ taxYear: 2025, formType: "f1040" }, { k1_partnerships: [] }), Error);
+  assertThrows(
+    () =>
+      k1Partnership.compute({ taxYear: 2025, formType: "f1040" }, {
+        k1_partnerships: [],
+      }),
+    Error,
+  );
 });
 
 Deno.test("missing partnership_name throws", () => {
   assertThrows(
-    () => k1Partnership.compute({ taxYear: 2025, formType: "f1040" }, { k1_partnerships: [{ box1_ordinary_business: 100 } as unknown as ReturnType<typeof minimalItem>] }),
+    () =>
+      k1Partnership.compute({ taxYear: 2025, formType: "f1040" }, {
+        k1_partnerships: [
+          { box1_ordinary_business: 100 } as unknown as ReturnType<
+            typeof minimalItem
+          >,
+        ],
+      }),
     Error,
   );
 });
@@ -34,11 +415,17 @@ Deno.test("negative box5_interest throws", () => {
 });
 
 Deno.test("negative box6a_ordinary_dividends throws", () => {
-  assertThrows(() => compute([minimalItem({ box6a_ordinary_dividends: -5 })]), Error);
+  assertThrows(
+    () => compute([minimalItem({ box6a_ordinary_dividends: -5 })]),
+    Error,
+  );
 });
 
 Deno.test("negative box6b_qualified_dividends throws", () => {
-  assertThrows(() => compute([minimalItem({ box6b_qualified_dividends: -10 })]), Error);
+  assertThrows(
+    () => compute([minimalItem({ box6b_qualified_dividends: -10 })]),
+    Error,
+  );
 });
 
 // ── 2. Per-box routing ────────────────────────────────────────────────────────
@@ -93,10 +480,62 @@ Deno.test("box4b_guaranteed_capital routes to schedule1 but not schedule_se", ()
   assertEquals(schSe, undefined);
 });
 
-Deno.test("box7_royalties routes to schedule1 line5_schedule_e", () => {
-  const result = compute([minimalItem({ box7_royalties: 700 })]);
-  const out = findOutput(result, "schedule1");
-  assertEquals(out?.fields.line5_schedule_e, 700);
+Deno.test("box 7 and box 13 code I reach one sourced Schedule E royalty row", () => {
+  const result = compute([minimalItem({
+    partnership_ein: "123456789",
+    source_document_reference: "2025 K-1 source A",
+    box7_royalties: 700,
+    box7_royalty_reporting: {
+      tsj: "T",
+      property_description: "Partnership mineral royalty",
+      portfolio_nonpassive: true,
+      form_1099_payments_made: false,
+    },
+    box13_code_i_royalty_deduction: {
+      reported_amount: 100,
+      allowed_amount: 100,
+      statement_reference: "2025 K-1 code I statement",
+      expense_kind: "depletion",
+      basis_workpaper_reference: "2025 outside-basis worksheet",
+      at_risk_workpaper_reference: "2025 at-risk worksheet",
+    },
+  })]);
+  assertEquals(findOutput(result, "schedule1"), undefined);
+  const row = (findOutput(result, "schedule_e")?.fields.schedule_es as
+    | Array<{
+      royalties_income: number;
+      expense_other_lines: Array<{ description: string; amount: number }>;
+      k1_royalty_source: { box13_code_i_allowed_deduction: number };
+    }>
+    | undefined)?.[0];
+  assertEquals(row?.royalties_income, 700);
+  assertEquals(row?.expense_other_lines?.[0], {
+    description: "From Schedule K-1 (Form 1065)",
+    amount: 100,
+  });
+  assertEquals(row?.k1_royalty_source?.box13_code_i_allowed_deduction, 100);
+  assertThrows(() => compute([minimalItem({ box7_royalties: 700 })]));
+  assertThrows(() =>
+    compute([minimalItem({
+      partnership_ein: "123456789",
+      source_document_reference: "2025 K-1 source A",
+      box7_royalties: 700,
+      box7_royalty_reporting: {
+        tsj: "T",
+        property_description: "Partnership mineral royalty",
+        portfolio_nonpassive: true,
+        form_1099_payments_made: false,
+      },
+      box13_code_i_royalty_deduction: {
+        reported_amount: 100,
+        allowed_amount: 90,
+        statement_reference: "2025 K-1 code I statement",
+        expense_kind: "depletion",
+        basis_workpaper_reference: "2025 outside-basis worksheet",
+        at_risk_workpaper_reference: "2025 at-risk worksheet",
+      },
+    })])
+  );
 });
 
 Deno.test("box5_interest routes to schedule_b taxable_interest_net", () => {
@@ -166,15 +605,37 @@ Deno.test("box20z_qbi routes to form8995 qbi", () => {
 });
 
 Deno.test("box20_w2_wages routes to form8995 w2_wages", () => {
-  const result = compute([minimalItem({ box20z_qbi: 10000, box20_w2_wages: 6000 })]);
+  const result = compute([
+    minimalItem({ box20z_qbi: 10000, box20_w2_wages: 6000 }),
+  ]);
   const out = findOutput(result, "form8995");
   assertEquals(out?.fields.w2_wages, 6000);
 });
 
 Deno.test("box16_foreign_tax routes to form_1116", () => {
-  const result = compute([minimalItem({ box16_foreign_tax: 180, box16_foreign_income: 900, box16_foreign_income_category: "passive" })]);
+  const result = compute([
+    minimalItem({
+      box16_foreign_tax: 180,
+      box16_foreign_income: 900,
+      box16_foreign_income_category: "passive",
+      box16_foreign_tax_irs_country_code: "GM",
+      box16_foreign_tax_paid_or_accrued_date: "2025-06-15",
+      box16_foreign_tax_kind: "interest",
+      box16_foreign_tax_credit_method: "paid",
+    }),
+  ]);
   const out = findOutput(result, "form_1116");
-  assertEquals((out?.fields.foreign_tax_items as Array<Record<string, unknown>>)[0].foreign_tax_paid, 180);
+  assertEquals(
+    (out?.fields.foreign_tax_items as Array<Record<string, unknown>>)[0]
+      .foreign_tax_paid,
+    180,
+  );
+  const taxItem =
+    (out?.fields.foreign_tax_items as Array<Record<string, unknown>>)[0];
+  assertEquals(taxItem.irs_country_code, "GM");
+  assertEquals(taxItem.tax_paid_or_accrued_date, "2025-06-15");
+  assertEquals(taxItem.tax_kind, "interest");
+  assertEquals(taxItem.tax_credit_method, "paid");
 });
 
 Deno.test("zero box16_foreign_tax does not route to form_1116", () => {
@@ -221,10 +682,18 @@ Deno.test("box1+box2+box3+box4a+box4b+box7 combined in schedule1", () => {
       box4a_guaranteed_services: 3000,
       box4b_guaranteed_capital: 500,
       box7_royalties: 400,
+      partnership_ein: "123456789",
+      source_document_reference: "2025 K-1 source B",
+      box7_royalty_reporting: {
+        tsj: "T",
+        property_description: "Partnership mineral royalty",
+        portfolio_nonpassive: true,
+        form_1099_payments_made: false,
+      },
     }),
   ]);
   const out = findOutput(result, "schedule1");
-  assertEquals(out?.fields.line5_schedule_e, 7400); // 2000+1000+500+3000+500+400
+  assertEquals(out?.fields.line5_schedule_e, 7000); // Box 7 flows through Schedule E Part I.
 });
 
 // ── 5. QBI extended fields (K199 screen) ─────────────────────────────────────
@@ -232,19 +701,25 @@ Deno.test("box1+box2+box3+box4a+box4b+box7 combined in schedule1", () => {
 Deno.test("box20_sstb true is accepted and does not produce extra outputs", () => {
   // SSTB indicator is informational in this node — Form 8995-A handles phaseout.
   // The field must be accepted by the schema without throwing.
-  const result = compute([minimalItem({ box20z_qbi: 10000, box20_sstb: true })]);
+  const result = compute([
+    minimalItem({ box20z_qbi: 10000, box20_sstb: true }),
+  ]);
   const out = findOutput(result, "form8995");
   assertEquals(out?.fields.qbi, 10000);
 });
 
 Deno.test("box20_sstb false is accepted", () => {
-  const result = compute([minimalItem({ box20z_qbi: 5000, box20_sstb: false })]);
+  const result = compute([
+    minimalItem({ box20z_qbi: 5000, box20_sstb: false }),
+  ]);
   const out = findOutput(result, "form8995");
   assertEquals(out?.fields.qbi, 5000);
 });
 
 Deno.test("box20_aggregation_group is accepted and does not affect routing", () => {
-  const result = compute([minimalItem({ box20z_qbi: 8000, box20_aggregation_group: "GroupA" })]);
+  const result = compute([
+    minimalItem({ box20z_qbi: 8000, box20_aggregation_group: "GroupA" }),
+  ]);
   const out = findOutput(result, "form8995");
   assertEquals(out?.fields.qbi, 8000);
 });
@@ -328,7 +803,10 @@ Deno.test("pre2018_basis_other_loss is accepted", () => {
 });
 
 Deno.test("negative pre2018_basis_ordinary_loss throws (nonnegative constraint)", () => {
-  assertThrows(() => compute([minimalItem({ pre2018_basis_ordinary_loss: -500 })]), Error);
+  assertThrows(
+    () => compute([minimalItem({ pre2018_basis_ordinary_loss: -500 })]),
+    Error,
+  );
 });
 
 // ── 8. Pre-2018 At-Risk Carryover fields (K1P> "Pre-2018 At-Risk" tab) ───────
@@ -354,7 +832,10 @@ Deno.test("pre2018_atrisk_other_loss is accepted", () => {
 });
 
 Deno.test("negative pre2018_atrisk_ordinary_loss throws (nonnegative constraint)", () => {
-  assertThrows(() => compute([minimalItem({ pre2018_atrisk_ordinary_loss: -100 })]), Error);
+  assertThrows(
+    () => compute([minimalItem({ pre2018_atrisk_ordinary_loss: -100 })]),
+    Error,
+  );
 });
 
 Deno.test("pre-2018 carryover fields alongside QBI produce correct QBI routing", () => {
@@ -384,7 +865,9 @@ Deno.test("all-zero K-1 produces no outputs", () => {
 });
 
 Deno.test("STCG and LTCG produce single merged schedule_d output", () => {
-  const result = compute([minimalItem({ box8_net_st_cap_gain: 800, box9a_net_lt_cap_gain: 1200 })]);
+  const result = compute([
+    minimalItem({ box8_net_st_cap_gain: 800, box9a_net_lt_cap_gain: 1200 }),
+  ]);
   const sdOutputs = result.outputs.filter((o) => o.nodeType === "schedule_d");
   assertEquals(sdOutputs.length, 1);
   assertEquals(sdOutputs[0].fields.line_5_k1_st, 800);
@@ -395,7 +878,9 @@ Deno.test("STCG and LTCG produce single merged schedule_d output", () => {
 
 Deno.test("box14a takes priority over box4a for schedule_se when both present", () => {
   // Box 14a is the authoritative SE earnings figure; box4a fallback only when 14a absent
-  const result = compute([minimalItem({ box4a_guaranteed_services: 5000, box14a_se_earnings: 12000 })]);
+  const result = compute([
+    minimalItem({ box4a_guaranteed_services: 5000, box14a_se_earnings: 12000 }),
+  ]);
   const out = findOutput(result, "schedule_se");
   assertEquals(out?.fields.net_profit_schedule_c, 12000);
 });
@@ -423,7 +908,11 @@ Deno.test("box20z_qbi sums across K-1s to form8995 qbi", () => {
 Deno.test("box20_w2_wages sums across K-1s to form8995 w2_wages", () => {
   const result = compute([
     minimalItem({ box20z_qbi: 8000, box20_w2_wages: 4000 }),
-    minimalItem({ partnership_name: "Fund B", box20z_qbi: 4000, box20_w2_wages: 2000 }),
+    minimalItem({
+      partnership_name: "Fund B",
+      box20z_qbi: 4000,
+      box20_w2_wages: 2000,
+    }),
   ]);
   const out = findOutput(result, "form8995");
   assertEquals(out?.fields.w2_wages, 6000);
@@ -490,5 +979,9 @@ Deno.test("smoke test — K-1 with all major boxes", () => {
   assertEquals(f8995?.fields.qbi, 20000);
   assertEquals(f8995?.fields.w2_wages, 10000);
   const f1116 = findOutput(result, "form_1116");
-  assertEquals((f1116?.fields.foreign_tax_items as Array<Record<string, unknown>>)[0].foreign_tax_paid, 200);
+  assertEquals(
+    (f1116?.fields.foreign_tax_items as Array<Record<string, unknown>>)[0]
+      .foreign_tax_paid,
+    200,
+  );
 });

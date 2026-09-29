@@ -1,5 +1,19 @@
-import { assertEquals, assertStringIncludes } from "@std/assert";
-import { scheduleSE } from "./schedule_se.ts";
+import { assertEquals, assertStringIncludes, assertThrows } from "@std/assert";
+import { type FilerIdentity, FilingStatus } from "../../../mef/header.ts";
+import { scheduleSE as rawScheduleSE } from "./schedule_se.ts";
+
+const filer: FilerIdentity = {
+  primarySSN: "123456789",
+  fullName: "Test Filer",
+  nameLine1: "FILER TEST",
+  nameControl: "FILE",
+  address: { line1: "1 Main St", city: "Austin", state: "TX", zip: "78701" },
+  filingStatus: FilingStatus.Single,
+};
+const scheduleSE = {
+  build: (fields: Parameters<typeof rawScheduleSE.build>[0]) =>
+    rawScheduleSE.build(fields, { filer }),
+};
 
 function assertNotIncludes(actual: string, expected: string) {
   assertEquals(
@@ -31,12 +45,15 @@ Deno.test("schedule_se: all unknown keys returns empty string", () => {
 
 Deno.test("schedule_se: net_profit_schedule_c at zero is emitted", () => {
   const result = scheduleSE.build({ net_profit_schedule_c: 0 });
-  assertStringIncludes(result, "<NetNonFarmProfitLossAmt>0</NetNonFarmProfitLossAmt>");
+  assertStringIncludes(
+    result,
+    "<NetNonFarmProfitLossAmt>0</NetNonFarmProfitLossAmt>",
+  );
 });
 
 // ---------------------------------------------------------------------------
 // Section 4: Per-field mapping (one test per field, 5 fields)
-// Tag names verified against IRS1040ScheduleSE.xsd (2025v3.0)
+// Tag names verified against IRS1040ScheduleSE.xsd (TY2025 v5.4)
 // ---------------------------------------------------------------------------
 
 Deno.test("schedule_se: net_profit_schedule_c maps to NetNonFarmProfitLossAmt", () => {
@@ -77,8 +94,14 @@ Deno.test("schedule_se: w2_ss_wages alone does not emit SE form (W-2-only filer)
 });
 
 Deno.test("schedule_se: w2_ss_wages maps to SSTWagesRRTCompAmt when SE income present", () => {
-  const result = scheduleSE.build({ net_profit_schedule_c: 30000, w2_ss_wages: 100000 });
-  assertStringIncludes(result, "<SSTWagesRRTCompAmt>100000</SSTWagesRRTCompAmt>");
+  const result = scheduleSE.build({
+    net_profit_schedule_c: 30000,
+    w2_ss_wages: 100000,
+  });
+  assertStringIncludes(
+    result,
+    "<SSTWagesRRTCompAmt>100000</SSTWagesRRTCompAmt>",
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -94,17 +117,29 @@ Deno.test("schedule_se: SSN element emitted before income fields", () => {
   assertEquals(ssnPos < incomePos, true, "SSN must precede income fields");
 });
 
-Deno.test("schedule_se: uses taxpayer_ssn from pending when available", () => {
+Deno.test("schedule_se: uses the filer SSN and checks a supplied pending SSN", () => {
   const result = scheduleSE.build({
     net_profit_schedule_c: 30000,
     taxpayer_ssn: "123-45-6789",
   });
-  assertStringIncludes(result, "<SSN>123-45-6789</SSN>");
+  assertStringIncludes(result, "<SSN>123456789</SSN>");
 });
 
-Deno.test("schedule_se: falls back to placeholder SSN when taxpayer_ssn absent", () => {
-  const result = scheduleSE.build({ net_profit_schedule_c: 30000 });
-  assertStringIncludes(result, "<SSN>000000000</SSN>");
+Deno.test("schedule_se: rejects missing or conflicting filer identity", () => {
+  assertThrows(
+    () => rawScheduleSE.build({ net_profit_schedule_c: 30000 }),
+    Error,
+    "needs the filer's nine-digit SSN",
+  );
+  assertThrows(
+    () =>
+      scheduleSE.build({
+        net_profit_schedule_c: 30000,
+        taxpayer_ssn: "987654321",
+      }),
+    Error,
+    "does not match the filer",
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -176,7 +211,10 @@ Deno.test("schedule_se: all 5 fields present: all elements emitted", () => {
     result,
     "<WagesSubjectToSSTAmt>8000</WagesSubjectToSSTAmt>",
   );
-  assertStringIncludes(result, "<SSTWagesRRTCompAmt>100000</SSTWagesRRTCompAmt>");
+  assertStringIncludes(
+    result,
+    "<SSTWagesRRTCompAmt>100000</SSTWagesRRTCompAmt>",
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -194,4 +232,78 @@ Deno.test("schedule_se: string field is silently ignored", () => {
   );
   assertNotIncludes(result, "filing_status");
   assertNotIncludes(result, "MFJ");
+});
+
+Deno.test("schedule_se: farm election maps Parts I and II in TY2025 XSD order", () => {
+  const result = scheduleSE.build({
+    farm_optional_method_elected: true,
+    gross_farm_income: 9_000,
+    net_profit_schedule_f: -2_000,
+    net_profit_schedule_c: 1_000,
+    w2_ss_wages: 2_000,
+  });
+  assertNotIncludes(result, "<NetFarmProfitLossAmt>");
+  const expected = [
+    "<NetNonFarmProfitLossAmt>1000</NetNonFarmProfitLossAmt>",
+    "<SETotalNetEarningsOrLossAmt>1000</SETotalNetEarningsOrLossAmt>",
+    "<MinimumProfitForSETaxAmt>924</MinimumProfitForSETaxAmt>",
+    "<OptionalMethodAmt>6000</OptionalMethodAmt>",
+    "<CombinedSEAmt>6924</CombinedSEAmt>",
+    "<CombinedSEAndChurchWagesAmt>6924</CombinedSEAndChurchWagesAmt>",
+    "<SSTWagesRRTCompAmt>2000</SSTWagesRRTCompAmt>",
+    "<SETaxFarmOptionalMethodAmt>6000</SETaxFarmOptionalMethodAmt>",
+  ];
+  let previous = -1;
+  for (const xml of expected) {
+    const current = result.indexOf(xml);
+    assertEquals(current > previous, true, `Missing or out of order: ${xml}`);
+    previous = current;
+  }
+});
+
+Deno.test("schedule_se: farm election caps line 15 at $7,240", () => {
+  const result = scheduleSE.build({
+    farm_optional_method_elected: true,
+    gross_farm_income: 10_860,
+    net_profit_schedule_f: 7_840,
+  });
+  assertStringIncludes(result, "<OptionalMethodAmt>7240</OptionalMethodAmt>");
+  assertStringIncludes(
+    result,
+    "<SETaxFarmOptionalMethodAmt>7240</SETaxFarmOptionalMethodAmt>",
+  );
+  assertNotIncludes(result, "<NetFarmProfitLossAmt>");
+});
+
+Deno.test("schedule_se: farm election refuses missing or ineligible source facts", () => {
+  assertThrows(
+    () =>
+      scheduleSE.build({
+        farm_optional_method_elected: true,
+        net_profit_schedule_f: -2_000,
+      }),
+    Error,
+    "requires gross farm income and net farm profit",
+  );
+  assertThrows(
+    () =>
+      scheduleSE.build({
+        farm_optional_method_elected: true,
+        gross_farm_income: 12_000,
+        net_profit_schedule_f: 8_000,
+      }),
+    Error,
+    "unavailable",
+  );
+});
+
+Deno.test("schedule_se: elected line 4c below $400 stops without a form", () => {
+  assertEquals(
+    scheduleSE.build({
+      farm_optional_method_elected: true,
+      gross_farm_income: 300,
+      net_profit_schedule_f: -1_000,
+    }),
+    "",
+  );
 });

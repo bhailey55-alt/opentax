@@ -4,15 +4,23 @@ import { normalizeAllPending } from "../pending.ts";
 import { ALL_PDF_FORMS } from "./forms/index.ts";
 import type { PdfFieldEntry, PdfFormDescriptor } from "./form-descriptor.ts";
 import type { FilerIdentity } from "../../mef/header.ts";
+import { assertAttachmentCoverage } from "../attachment-coverage.ts";
+import type { MefBundle } from "../mef/builder.ts";
+import { preparedSourceSha256, sha256Hex } from "../prepared-source.ts";
 
-async function fetchWithCache(url: string, cacheDir: string): Promise<Uint8Array> {
+async function fetchWithCache(
+  url: string,
+  cacheDir: string,
+): Promise<Uint8Array> {
   const slug = url.replace(/[^a-zA-Z0-9]/g, "_").replace(/_+/g, "_");
   const cachePath = join(cacheDir, `${slug}.pdf`);
   try {
     return await Deno.readFile(cachePath);
   } catch {
     const res = await fetch(url);
-    if (!res.ok) throw new Error(`Failed to fetch IRS PDF: ${url} (${res.status})`);
+    if (!res.ok) {
+      throw new Error(`Failed to fetch IRS PDF: ${url} (${res.status})`);
+    }
     const bytes = new Uint8Array(await res.arrayBuffer());
     await Deno.mkdir(cacheDir, { recursive: true });
     await Deno.writeFile(cachePath, bytes);
@@ -52,17 +60,25 @@ function fillEntry(
       const box = form.getCheckBox(entry.pdfField);
       value ? box.check() : box.uncheck();
     } else if (entry.kind === "checkboxWhen") {
-      if (String(value) === entry.whenValue) form.getCheckBox(entry.pdfField).check();
+      if (String(value) === entry.whenValue) {
+        form.getCheckBox(entry.pdfField).check();
+      }
     } else if (entry.kind === "radio") {
       const mapped = entry.valueMap[String(value)];
-      if (mapped) form.getRadioGroup(entry.pdfField).select(mapped);
+      if (!mapped) {
+        throw new Error(`unmapped radio value ${String(value)}`);
+      }
+      form.getRadioGroup(entry.pdfField).select(mapped);
     }
     // Fill any additional PDF fields that share the same domain value
     if ("extraPdfFields" in entry && entry.extraPdfFields) {
       for (const extraField of entry.extraPdfFields) {
         try {
           if (entry.kind === "text") {
-            if (typeof value === "number" && Math.round(value) === 0) continue;
+            if (
+              typeof value === "number" && Math.round(value) === 0 &&
+              !("printZero" in entry && entry.printZero)
+            ) continue;
             const text = typeof value === "number"
               ? Math.round(value).toString()
               : String(value);
@@ -72,20 +88,22 @@ function fillEntry(
             value ? box.check() : box.uncheck();
           }
         } catch (extraErr) {
-          console.error(
-            `[PDF] ${formKey}: failed to fill extra field "${extraField}" (${entry.kind}) — ${extraErr}`,
+          throw new Error(
+            `[PDF] ${formKey}: failed to fill extra field "${extraField}" (${entry.kind})`,
+            { cause: extraErr },
           );
         }
       }
     }
   } catch (err) {
-    console.error(
-      `[PDF] ${formKey}: failed to fill field "${entry.pdfField}" (${entry.kind}) — ${err}`,
+    throw new Error(
+      `[PDF] ${formKey}: failed to fill field "${entry.pdfField}" (${entry.kind})`,
+      { cause: err },
     );
   }
 }
 
-async function fillFormPdf(
+export async function fillFormPdf(
   descriptor: PdfFormDescriptor,
   fields: Record<string, unknown>,
   filer: FilerIdentity | undefined,
@@ -109,14 +127,27 @@ async function fillFormPdf(
     return false;
   };
   const hasData =
-    descriptor.fields.some(({ domainKey }) => isMeaningful(fields[domainKey])) ||
+    descriptor.fields.some(({ domainKey }) =>
+      isMeaningful(fields[domainKey])
+    ) ||
     (descriptor.rows !== undefined &&
       Array.isArray(fields[descriptor.rows.domainKey]) &&
       (fields[descriptor.rows.domainKey] as unknown[]).length > 0);
 
-  if (!hasData) return undefined;
-  if (descriptor.includeWhen !== undefined && !descriptor.includeWhen(fields, allPending)) {
-    return undefined;
+  if (!hasData && descriptor.includeWhenNoMappedData !== true) return undefined;
+  if (descriptor.includeWhen === undefined && !hasData) return undefined;
+  if (
+    descriptor.includeWhen !== undefined &&
+    !descriptor.includeWhen(fields, allPending)
+  ) return undefined;
+
+  if (descriptor.rows) {
+    const items = fields[descriptor.rows.domainKey];
+    if (Array.isArray(items) && items.length > descriptor.rows.maxRows) {
+      throw new Error(
+        `[PDF] ${descriptor.pendingKey}: ${items.length} rows exceed the printable row limit of ${descriptor.rows.maxRows}`,
+      );
+    }
   }
 
   const pdfBytes = await fetchWithCache(descriptor.pdfUrl, cacheDir);
@@ -147,13 +178,19 @@ async function fillFormPdf(
   if (descriptor.rows) {
     const items = fields[descriptor.rows.domainKey];
     if (Array.isArray(items)) {
-      for (let i = 0; i < Math.min(items.length, descriptor.rows.maxRows); i++) {
+      for (let i = 0; i < items.length; i++) {
         const row = items[i] as Record<string, unknown>;
         for (const rf of descriptor.rows.rowFields) {
           let pdfField = rf.pdfFieldPattern.replace("{row}", String(i + 1));
-          if (rf.fieldNumBase !== undefined && descriptor.rows.rowStride !== undefined) {
+          if (
+            rf.fieldNumBase !== undefined &&
+            descriptor.rows.rowStride !== undefined
+          ) {
             const fieldNum = rf.fieldNumBase + i * descriptor.rows.rowStride;
-            pdfField = pdfField.replace("{field_num}", String(fieldNum).padStart(2, "0"));
+            pdfField = pdfField.replace(
+              "{field_num}",
+              String(fieldNum).padStart(2, "0"),
+            );
           }
           const value = row[rf.domainKey];
           if (value === undefined || value === null) continue;
@@ -163,12 +200,17 @@ async function fillFormPdf(
               value ? box.check() : box.uncheck();
             } else {
               form.getTextField(pdfField).setText(
-                typeof value === "number" ? Math.round(value).toString() : String(value),
+                typeof value === "number"
+                  ? Math.round(value).toString()
+                  : String(value),
               );
             }
           } catch (err) {
-            console.error(
-              `[PDF] ${descriptor.pendingKey}: row ${i + 1} field "${pdfField}" — ${err}`,
+            throw new Error(
+              `[PDF] ${descriptor.pendingKey}: failed to fill row ${
+                i + 1
+              } field "${pdfField}"`,
+              { cause: err },
             );
           }
         }
@@ -198,37 +240,78 @@ export async function buildPdfBytes(
   pending: Record<string, unknown>,
   filer: FilerIdentity | undefined,
   cacheDir = ".pdf-cache",
+  preparedBundle?: MefBundle,
 ): Promise<Uint8Array> {
   const normalized = normalizeAllPending(pending);
+  if (
+    preparedBundle &&
+    await preparedSourceSha256(normalized, filer) !==
+      preparedBundle.sourceSha256
+  ) {
+    throw new Error("PDF source differs from the prepared MeF return");
+  }
+  if (
+    preparedBundle?.form3800Parts &&
+    await sha256Hex(
+        new TextEncoder().encode(JSON.stringify(preparedBundle.form3800Parts)),
+      ) !== preparedBundle.form3800PartsSha256
+  ) {
+    throw new Error("Form 3800 PDF parts differ from the prepared MeF return");
+  }
+  assertAttachmentCoverage(normalized, "pdf");
   const merged = await PDFDocument.create();
 
   for (const descriptor of ALL_PDF_FORMS) {
-    const fields = (normalized[descriptor.pendingKey] ?? {}) as Record<string, unknown>;
+    const fields = (normalized[descriptor.pendingKey] ?? {}) as Record<
+      string,
+      unknown
+    >;
+    const projectedFields = descriptor.projectFields?.(fields, normalized) ??
+      fields;
 
     const effectiveFields = descriptor.rows
       ? {
-        ...fields,
+        ...projectedFields,
         [descriptor.rows.domainKey]: pending[descriptor.rows.domainKey] ??
-          fields[descriptor.rows.domainKey],
+          projectedFields[descriptor.rows.domainKey],
       }
-      : fields;
+      : projectedFields;
 
-    const instances = descriptor.instances?.(effectiveFields) ?? [effectiveFields];
+    const instances = descriptor.instances?.(
+      effectiveFields,
+      filer,
+      normalized,
+      preparedBundle?.form3800Parts,
+    ) ??
+      [effectiveFields];
     for (const instance of instances) {
-      const filledBytes = await fillFormPdf(descriptor, instance, filer, cacheDir, normalized);
+      const filledBytes = await fillFormPdf(
+        descriptor,
+        instance,
+        filer,
+        cacheDir,
+        normalized,
+      );
       if (!filledBytes) continue;
 
       const filledDoc = await PDFDocument.load(filledBytes);
-      const pageIndices = filledDoc.getPageIndices();
+      const pageIndices = [
+        ...(descriptor.pageIndices?.(instance) ??
+          filledDoc.getPageIndices()),
+      ];
       const copiedPages = await merged.copyPages(filledDoc, pageIndices);
+      await descriptor.decoratePages?.(merged, copiedPages, instance, filer);
       for (const page of copiedPages) {
         merged.addPage(page);
       }
+      await descriptor.appendSupplementalPages?.(merged, instance, filer);
     }
   }
 
   if (merged.getPageCount() === 0) {
-    throw new Error("No PDF forms were generated — return may have no computed data.");
+    throw new Error(
+      "No PDF forms were generated — return may have no computed data.",
+    );
   }
 
   return merged.save();
