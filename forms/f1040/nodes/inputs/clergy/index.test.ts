@@ -116,6 +116,15 @@ Deno.test("clergy.compute: unreimbursed ministerial expenses reduce SE earnings"
   assertEquals(findOutput(result, "schedule_se")?.fields.ministerial_se_earnings, 57000);
 });
 
+Deno.test("clergy.compute: ministerial loss reaches Schedule SE", () => {
+  const result = compute([{
+    is_ordained_minister: true,
+    ministerial_wages: 1_000,
+    unreimbursed_ministerial_expenses: 2_000,
+  }]);
+  assertEquals(findOutput(result, "schedule_se")?.fields.ministerial_se_earnings, -1_000);
+});
+
 Deno.test("clergy.compute: SE earnings zero — no schedule_se output", () => {
   const result = compute([{ is_ordained_minister: true }]);
   assertEquals(findOutput(result, "schedule_se"), undefined);

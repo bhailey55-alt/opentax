@@ -36,7 +36,7 @@ export const inputSchema = z.object({
   // Net earnings from ministerial services (clergy without an approved Form 4361): wages,
   // housing allowance, parsonage rental value, less allowable expenses. Part of Sch SE Line 2
   // per the Schedule SE instructions and Pub 517.
-  ministerial_se_earnings: z.number().nonnegative().optional(),
+  ministerial_se_earnings: z.number().optional(),
   // Net farm profit from Schedule F, line 34 (Sch SE Line 1a)
   net_profit_schedule_f: z.number().optional(),
   // An affirmative Part II farm optional method election. The farm profit is

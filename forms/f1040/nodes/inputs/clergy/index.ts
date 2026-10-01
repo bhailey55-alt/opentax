@@ -99,7 +99,7 @@ export function ministerialSeEarnings(item: ClergyItem): number {
   // When the church reported the allowance inside box 1, ministerial_wages already contains it.
   const allowance = item.housing_allowance_included_in_w2_box1 === true ? 0 : allowancePaid(item);
   const gross = (item.ministerial_wages ?? 0) + allowance + (item.parsonage_value ?? 0);
-  return Math.max(0, gross - (item.unreimbursed_ministerial_expenses ?? 0));
+  return gross - (item.unreimbursed_ministerial_expenses ?? 0);
 }
 
 function sum(items: ClergyItems, fn: (item: ClergyItem) => number): number {

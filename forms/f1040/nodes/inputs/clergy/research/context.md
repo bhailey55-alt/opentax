@@ -43,7 +43,7 @@ This node captures clergy/ministerial income data for ministers of the gospel. M
 3. **Allowable exclusion.** `allowable = min(designated, paid, actual, fair_rental_value)`. A missing actual-expense or rental-value figure counts as zero, so nothing is excluded until both are entered.
 4. **Excess allowance (normal case, allowance not in box 1).** `excess = max(0, paid − allowable)` → `f1040.line1h_other_earned` and `agi_aggregator.line1h_other_earned`.
 5. **Allowance in box 1.** Subtract `allowable` on `schedule1.line8z_other_income`; no line 1h amount.
-6. **SE earnings (no Form 4361).** `ministerial_wages + (allowance not in box 1 ? paid : 0) + parsonage_value − unreimbursed_ministerial_expenses`, floored at 0 → `schedule_se.ministerial_se_earnings`. Schedule SE adds it to line 2 with any Schedule C profit, then applies the 92.35% factor and the $400 test to the combined amount.
+6. **SE earnings (no Form 4361).** `ministerial_wages + (allowance not in box 1 ? paid : 0) + parsonage_value − unreimbursed_ministerial_expenses` → `schedule_se.ministerial_se_earnings`. A loss remains negative and offsets Schedule C profit on line 2 before the 92.35% factor and the $400 test.
 
 ---
 
@@ -51,7 +51,7 @@ This node captures clergy/ministerial income data for ministers of the gospel. M
 
 | Field | Destination | Condition |
 | ----- | ----------- | --------- |
-| `ministerial_se_earnings` | `schedule_se` | ordained, no Form 4361, earnings > 0 |
+| `ministerial_se_earnings` | `schedule_se` | ordained, no Form 4361, earnings other than 0 |
 | `line1h_other_earned` | `f1040`, `agi_aggregator` | ordained, allowance not in box 1, excess > 0 |
 | `line8z_other_income` (negative) | `schedule1` | ordained, allowance in box 1, allowable > 0 |
 
@@ -63,7 +63,8 @@ This node captures clergy/ministerial income data for ministers of the gospel. M
 2. **Form 4361 with an excess allowance:** the excess is still taxable income on line 1h; there is still no SE tax on it.
 3. **Parsonage plus cash allowance:** both can exist. The parsonage needs no income adjustment; both count in SE earnings when there is no Form 4361.
 4. **Separate Schedule SE field:** ministerial earnings use `ministerial_se_earnings` rather than `net_profit_schedule_c`, so they don't collide with Schedule C's deposit and stay out of QBI, Form 7206, and Form 8990 routes that read Schedule C profit.
-5. **Not modeled:** the reasonable-compensation ceiling; the Schedule SE line A checkbox; the "Excess allowance" literal next to line 1h; the attached explanation Schedule SE requires for ministerial wages and expenses.
+5. **Shared line 1h:** clergy, foreign employer compensation, and Form 2555 deposits accumulate; Form 1040 and AGI sum them, and the finalized return carries a scalar line 1h.
+6. **Not modeled:** the reasonable-compensation ceiling; the Schedule SE line A checkbox; the "Excess allowance" literal next to line 1h; the attached explanation Schedule SE requires for ministerial wages and expenses.
 
 ---
 
