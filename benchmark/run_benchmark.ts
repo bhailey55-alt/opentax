@@ -5,13 +5,10 @@
  */
 
 import { dirname, fromFileUrl, join } from "@std/path";
-
 import {
-  benchmarkExitCode,
   benchmarkExpectedSchema,
   benchmarkInputSchema,
   benchmarkReturnSchema,
-  benchmarkTax,
   createdReturnSchema,
   discoverBenchmarkCases,
 } from "./harness.ts";
@@ -40,11 +37,224 @@ const RED = "\x1b[31m",
   RST = "\x1b[0m";
 const CLEAR_LINE = "\x1b[2K\r";
 
+export function taxCommandOutputOrThrow(
+  code: number,
+  stdoutText: string,
+  stderrText: string,
+  args: readonly string[],
+): string {
+  if (code !== 0) {
+    throw new Error(
+      `opentax command failed (${code}): deno run cli/main.ts ${
+        args.join(" ")
+      }\n${stderrText}${stdoutText}`,
+    );
+  }
+  if (stderrText.length > 0) {
+    console.error(stderrText);
+  }
+  return stdoutText;
+}
+
 async function tax(...args: string[]): Promise<string> {
-  return await benchmarkTax(TAX_DIR, args);
+  const { code, stdout, stderr } = await new Deno.Command("deno", {
+    args: [
+      "run",
+      "--allow-read",
+      "--allow-write",
+      join(TAX_DIR, "cli/main.ts"),
+      ...args,
+    ],
+    stdout: "piped",
+    stderr: "piped",
+  }).output();
+  const stdoutText = new TextDecoder().decode(stdout);
+  const stderrText = new TextDecoder().decode(stderr);
+  return taxCommandOutputOrThrow(code, stdoutText, stderrText, args);
+}
+
+function displayScalar(val: unknown): number {
+  if (Array.isArray(val)) return typeof val[0] === "number" ? val[0] : 0;
+  return typeof val === "number" ? val : 0;
+}
+
+export type NumericLineFailure = {
+  readonly line: string;
+  readonly expected: number;
+  readonly actual: unknown;
+  readonly reason: "missing" | "multi_entry" | "nonfinite" | "mismatch";
+  readonly tolerance: number;
+};
+
+// Retained legacy absolute dollar tolerance, inclusive per line, not an IRS rule.
+const ROUNDING_TOLERANCE = 5;
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function singleNumericActual(
+  value: unknown,
+): number | NumericLineFailure["reason"] {
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "missing";
+    if (value.length > 1) return "multi_entry";
+    return isFiniteNumber(value[0]) ? value[0] : "nonfinite";
+  }
+  return isFiniteNumber(value) ? value : "nonfinite";
+}
+
+/** The CLI omits the inactive balance side; other missing values remain missing. */
+export function benchmarkActualLines(
+  lines: Readonly<Record<string, unknown>>,
+  summary: Readonly<Record<string, unknown>>,
+): Record<string, unknown> {
+  const actual = { ...summary, ...lines };
+  const refund = actual.line35a_refund;
+  const owed = actual.line37_amount_owed;
+  const noRefund = !("line35a_refund" in actual);
+  const noOwed = !("line37_amount_owed" in actual);
+  if (noRefund && isFiniteNumber(owed) && owed > 0) actual.line35a_refund = 0;
+  if (noOwed && isFiniteNumber(refund) && refund > 0) {
+    actual.line37_amount_owed = 0;
+  }
+  if (
+    noRefund && noOwed && isFiniteNumber(actual.line24_total_tax) &&
+    actual.line24_total_tax === actual.line33_total_payments
+  ) {
+    actual.line35a_refund = 0;
+    actual.line37_amount_owed = 0;
+  }
+  return actual;
+}
+
+export function compareExpectedNumericLines(
+  actual: Readonly<Record<string, unknown>>,
+  expected: Readonly<Record<string, unknown>>,
+  tolerance = ROUNDING_TOLERANCE,
+): NumericLineFailure[] {
+  if (!Number.isFinite(tolerance) || tolerance < 0) {
+    throw new Error("Benchmark tolerance must be finite and nonnegative");
+  }
+  let numericCount = 0;
+  const failures: NumericLineFailure[] = [];
+  for (const [line, expectedValue] of Object.entries(expected)) {
+    if (typeof expectedValue !== "number") continue;
+    if (!Number.isFinite(expectedValue)) {
+      throw new Error(`Nonfinite expected benchmark value: ${line}`);
+    }
+    numericCount++;
+    if (!(line in actual)) {
+      failures.push({
+        line,
+        expected: expectedValue,
+        actual: undefined,
+        reason: "missing",
+        tolerance,
+      });
+      continue;
+    }
+    const actualValue = singleNumericActual(actual[line]);
+    if (typeof actualValue === "string") {
+      failures.push({
+        line,
+        expected: expectedValue,
+        actual: actual[line],
+        reason: actualValue,
+        tolerance,
+      });
+      continue;
+    }
+    if (Math.abs(actualValue - expectedValue) > tolerance) {
+      failures.push({
+        line,
+        expected: expectedValue,
+        actual: actualValue,
+        reason: "mismatch",
+        tolerance,
+      });
+    }
+  }
+  if (numericCount === 0) {
+    throw new Error("No numeric expected benchmark values");
+  }
+  return failures;
 }
 
 // ── Table layout ─────────────────────────────────────────────────────────────
+
+export type UnsupportedCheck = {
+  readonly field: string;
+  readonly expected: number;
+  readonly kind: "unmapped_oracle";
+};
+
+// Exact public summary keys: cli/commands/return.ts ReturnSummary/extractSummary.
+// Additional exact raw output keys: forms/f1040/nodes/outputs/general/return-assembly/f1040/index.ts inputSchema.
+// No inferred aliases, aggregation, missing-to-zero conversion or intermediate mapping.
+const SUMMARY_FIELDS = new Set([
+  "line1z_total_wages",
+  "line9_total_income",
+  "line11_agi",
+  "line15_taxable_income",
+  "line24_total_tax",
+  "line33_total_payments",
+  "line35a_refund",
+  "line37_amount_owed",
+]);
+const RAW_FIELDS = new Set([
+  "line1a_wages",
+  "line10_adjustments",
+  "line27_eitc",
+]);
+const METADATA_FIELDS = new Set([
+  "case",
+  "scenario",
+  "year",
+  "inputs",
+  "notes",
+  "source",
+  "sources",
+]);
+
+export function classifyFixtureExpectations(
+  fixture: Readonly<Record<string, unknown>>,
+) {
+  const wrapped = fixture.correct !== undefined;
+  const expected = wrapped ? fixture.correct : fixture;
+  if (!expected || typeof expected !== "object" || Array.isArray(expected)) {
+    throw new Error("Invalid fixture expectations object");
+  }
+  const expectedLines: Record<string, number> = {};
+  const unsupportedChecks: UnsupportedCheck[] = [];
+  const metadata = wrapped
+    ? Object.keys(fixture).filter((key) => key !== "correct")
+    : [];
+  for (const [field, value] of Object.entries(expected)) {
+    if (!wrapped && METADATA_FIELDS.has(field)) {
+      metadata.push(field);
+      continue;
+    }
+    if (typeof value !== "number") {
+      if (!METADATA_FIELDS.has(field)) {
+        throw new Error(`Nonnumeric expected benchmark value: ${field}`);
+      }
+      metadata.push(field);
+      continue;
+    }
+    if (!Number.isFinite(value)) {
+      throw new Error(`Nonfinite expected benchmark value: ${field}`);
+    }
+    if (SUMMARY_FIELDS.has(field) || RAW_FIELDS.has(field)) {
+      expectedLines[field] = value;
+    } else {unsupportedChecks.push({
+        field,
+        expected: value,
+        kind: "unmapped_oracle",
+      });}
+  }
+  return { expectedLines, unsupportedChecks, metadata };
+}
 
 const COLS = [
   { label: "#", width: 3, align: "r" },
@@ -92,7 +302,7 @@ function headerRow(): string {
 
 // ── Case runner ───────────────────────────────────────────────────────────────
 
-type SuccessfulCaseResult = {
+type CaseResult = {
   name: string;
   engAgi: number;
   engTi: number;
@@ -101,30 +311,21 @@ type SuccessfulCaseResult = {
   engRef: number;
   engOwe: number;
   correct: Record<string, number>;
+  lineFailures: NumericLineFailure[];
+  unsupportedChecks: UnsupportedCheck[];
+  errors: string[];
   ok: boolean;
-  warnings: string[];
-};
-
-type CaseResult = SuccessfulCaseResult | {
-  name: string;
-  ok: false;
-  error: string;
 };
 
 async function runCase(name: string): Promise<CaseResult> {
   const caseDir = join(CASES_DIR, name);
   const inputFile = join(caseDir, "input.json");
   const correctFile = join(caseDir, "correct.json");
-  await Deno.stat(inputFile);
-  await Deno.stat(correctFile);
-
   const caseData = benchmarkInputSchema.parse(
     JSON.parse(await Deno.readTextFile(inputFile)),
   );
-  const correct = benchmarkExpectedSchema.parse(
-    JSON.parse(await Deno.readTextFile(correctFile)),
-  );
-
+  const correct = JSON.parse(await Deno.readTextFile(correctFile));
+  benchmarkExpectedSchema.parse(correct);
   const rid = createdReturnSchema.parse(JSON.parse(
     await tax("return", "create", "--year", String(caseData.year), "--json"),
   )).returnId;
@@ -144,18 +345,32 @@ async function runCase(name: string): Promise<CaseResult> {
   const eng = benchmarkReturnSchema.parse(JSON.parse(
     await tax("return", "get", "--returnId", rid, "--json"),
   ));
-  const sm = eng.summary;
-  const engAgi = sm.line11_agi;
-  const engTi = sm.line15_taxable_income;
-  const engTax = sm.line24_total_tax;
-  const engPay = sm.line33_total_payments;
-  const engRef = sm.line35a_refund ?? 0;
-  const engOwe = sm.line37_amount_owed ?? 0;
+  const l = eng.lines ?? {};
+  const sm = eng.summary ?? {};
+  // Raw lines take precedence: summary normalization must not hide malformed values.
+  const actualLines = benchmarkActualLines(l, sm);
+  const errors: string[] = (eng.warnings ?? []).filter((warning: string) =>
+    warning.startsWith("[EXECUTOR_")
+  );
 
-  const c = correct;
-  const ok = Math.abs(engTax - c.line24_total_tax) <= 5 &&
-    Math.abs(engRef - c.line35a_refund) <= 5 &&
-    Math.abs(engOwe - c.line37_amount_owed) <= 5;
+  const engAgi = displayScalar(actualLines.line11_agi ?? 0);
+  const engTi = displayScalar(actualLines.line15_taxable_income ?? 0);
+  const engTax = displayScalar(actualLines.line24_total_tax ?? 0);
+  const engPay = displayScalar(actualLines.line33_total_payments ?? 0);
+  const engRef = displayScalar(actualLines.line35a_refund ?? 0);
+  const engOwe = displayScalar(actualLines.line37_amount_owed ?? 0);
+
+  const { expectedLines: c, unsupportedChecks } = classifyFixtureExpectations(
+    correct,
+  );
+  const lineFailures = Object.keys(c).length > 0
+    ? compareExpectedNumericLines(actualLines, c)
+    : [];
+  if (Object.keys(c).length === 0 && unsupportedChecks.length === 0) {
+    errors.push("No numeric expected benchmark values");
+  }
+  const ok = lineFailures.length === 0 && errors.length === 0 &&
+    unsupportedChecks.length === 0;
 
   return {
     name,
@@ -166,7 +381,9 @@ async function runCase(name: string): Promise<CaseResult> {
     engRef,
     engOwe,
     correct: c,
-    warnings: eng.warnings,
+    lineFailures,
+    unsupportedChecks,
+    errors,
     ok,
   };
 }
@@ -177,9 +394,6 @@ function colorNum(eng: number, cor: number, width: number): string {
 }
 
 function resultRow(r: CaseResult, idx: number): string {
-  if ("error" in r) {
-    return tableRow([String(idx + 1), r.name, "", "", "", "", "", "", "ERROR"]);
-  }
   const numW = COLS[2].width; // all number columns share this width
   const nums = [
     colorNum(r.engAgi, r.correct.line11_agi, numW),
@@ -219,9 +433,6 @@ function progressLine(done: number, total: number, running: number): string {
 
 const CONCURRENCY = 8;
 
-const casePaths = await discoverBenchmarkCases(CASES_DIR);
-const names = casePaths.map((path) => path.slice(CASES_DIR.length + 1));
-
 async function runAll(caseNames: string[]): Promise<CaseResult[]> {
   const allResults: CaseResult[] = [];
   let idx = 0, done = 0, printed = 0;
@@ -236,14 +447,23 @@ async function runAll(caseNames: string[]): Promise<CaseResult[]> {
       const name = caseNames[idx++];
       const activeCount = Math.min(CONCURRENCY, total - done);
 
-      let result: CaseResult;
+      let result: CaseResult | null;
       try {
         result = await runCase(name);
       } catch (error) {
         result = {
           name,
+          engAgi: NaN,
+          engTi: NaN,
+          engTax: NaN,
+          engPay: NaN,
+          engRef: NaN,
+          engOwe: NaN,
+          correct: {},
+          lineFailures: [],
+          unsupportedChecks: [],
+          errors: [error instanceof Error ? error.message : String(error)],
           ok: false,
-          error: error instanceof Error ? error.message : String(error),
         };
       }
       done++;
@@ -262,34 +482,51 @@ async function runAll(caseNames: string[]): Promise<CaseResult[]> {
   return allResults;
 }
 
-const results = await runAll(names);
+if (import.meta.main) {
+  const paths = await discoverBenchmarkCases(CASES_DIR);
+  const names = paths.map((path) => path.slice(CASES_DIR.length + 1));
 
-// ── Footer ────────────────────────────────────────────────────────────────────
+  const results = await runAll(names);
 
-write(BOT + "\n");
+  // ── Footer ────────────────────────────────────────────────────────────────────
 
-const pass = results.filter((r) => r.ok).length;
-const fail = results.length - pass;
+  write(BOT + "\n");
 
-write(
-  `\n  ${GRN}${pass} PASS${RST}  ${RED}${fail} FAIL${RST}  ${DIM}out of ${results.length} cases  ·  green = within $5${RST}\n\n`,
-);
+  const pass = results.filter((r) => r.ok).length;
+  const fail = results.length - pass;
+  const skipped = names.length - results.length;
+  const emptyCaseSet = results.length === 0;
 
-if (jsonFlag) {
-  const failing = results.filter((r) => !r.ok).map((r) => r.name);
-  console.log(
-    JSON.stringify({
-      total: results.length,
-      discovered: names.length,
-      pass,
-      fail,
-      failing,
-      errors: results.filter((result) => "error" in result),
-      warnings: results.filter((result) =>
-        "warnings" in result && result.warnings.length > 0
-      ),
-    }),
+  write(
+    `\n  ${GRN}${pass} PASS${RST}  ${RED}${fail} FAIL${RST}  ${YEL}${skipped} SKIP${RST}  ${DIM}out of ${results.length} runnable cases  ·  green = within $${ROUNDING_TOLERANCE} legacy benchmark tolerance${RST}\n\n`,
   );
-}
+  if (emptyCaseSet) {
+    console.error(
+      "No runnable benchmark cases found; failing instead of reporting an empty success.",
+    );
+  }
 
-Deno.exit(benchmarkExitCode(results.length, fail));
+  if (jsonFlag) {
+    const failures = results.filter((r) => !r.ok).map((r) => ({
+      name: r.name,
+      lineFailures: r.lineFailures,
+      unsupportedChecks: r.unsupportedChecks,
+      errors: r.errors,
+    }));
+    const failing = failures.map((failure) => failure.name);
+    console.log(
+      JSON.stringify({
+        total: results.length,
+        skipped,
+        pass,
+        fail,
+        failing,
+        failures,
+      }),
+    );
+  }
+
+  if (fail > 0 || skipped > 0 || emptyCaseSet) {
+    Deno.exit(1);
+  }
+}
