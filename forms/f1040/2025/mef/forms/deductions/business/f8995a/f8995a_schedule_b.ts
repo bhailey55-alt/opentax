@@ -8,7 +8,6 @@ import {
 } from "../../../../../pdf/forms/deductions/business/f8995a_aggregation_statement.ts";
 import { z } from "zod";
 import { element, elements } from "../../../../../../mef/xml.ts";
-import { FilingStatus } from "../../../../../../mef/header.ts";
 import {
   calculateTwoBusinessAggregationLines,
   type Form8995AInput,
@@ -25,6 +24,83 @@ import type {
 import { inputSchema as sCorpInputSchema } from "../../../../../../nodes/inputs/income/rental-passthrough/k1_s_corp/index.ts";
 import { currentSCorpRpeAggregation } from "../../../../../../nodes/inputs/deductions/business/k1_rpe_aggregation_source.ts";
 import { isDeepStrictEqual } from "node:util";
+import { aggregationOwner } from "../../../../../domains/deductions/business/form8995a/form8995a_aggregation_owner.ts";
+import { assertOwnedScheduleSE } from "../../../../../domains/taxes/self-employment/schedule-se/schedule-se-owner-source.ts";
+import {
+  assertMultiBusinessInvestmentSources,
+  assertMultiBusinessInvestmentTax,
+} from "../f8995/f8995-investment.ts";
+import { inputSchema as w2InputSchema } from "../../../../../../nodes/inputs/income/wages/w2/index.ts";
+
+/** Keep portfolio sources outside the business group, but in its income limit. */
+function assertAggregationInvestments(
+  input: Form8995AInput,
+  context: MefBuildContext | undefined,
+) {
+  const pending = context?.pending as
+    | Record<string, Record<string, unknown>>
+    | undefined;
+  if (!pending || !context?.filer) {
+    throw Error("Aggregation investment review needs its complete return");
+  }
+  if (
+    input.qbi_capital_sources === undefined &&
+    input.investment_interest_sources === undefined &&
+    input.investment_dividend_sources === undefined &&
+    pending.f1099int === undefined && pending.f1099div === undefined &&
+    pending.f1099b === undefined
+  ) {
+    if (
+      input.net_capital_gain !== 0 ||
+      (pending.f1040?.line3a_qualified_dividends ?? 0) !== 0 ||
+      Number(pending.f1040?.line7_capital_gain ?? 0) > 0
+    ) {
+      throw Error(
+        "Aggregation capital limit needs retained investment sources",
+      );
+    }
+    return;
+  }
+  const totals = assertMultiBusinessInvestmentSources(
+    { ...input, taxpayer_ssn: context.filer.primarySSN },
+    pending,
+    true,
+    input.filing_status === "mfj" ? context.filer.spouse?.ssn : undefined,
+  );
+  const wages = pending.w2 === undefined
+    ? 0
+    : w2InputSchema.parse(pending.w2).w2s.reduce(
+      (sum, w) => sum + w.box1_wages,
+      0,
+    );
+  const businessIncome = input.rpe_aggregation_source
+    ? input.rpe_aggregation_source.members.reduce((sum, m) => sum + m.qbi, 0)
+    : input.aggregation_filing_details!.members.reduce(
+      (sum, m) => sum + computeNetProfit(m.source_schedule_c),
+      0,
+    );
+  const adjustments = [
+    "line15_se_deduction",
+    "line16_sep_simple",
+    "line17_se_health_insurance",
+  ]
+    .reduce((sum, key) => sum + Number(pending.schedule1?.[key] ?? 0), 0);
+  const income = wages + businessIncome + totals.interest + totals.ordinary +
+    totals.returnCapital;
+  const f = pending.f1040;
+  if (
+    input.net_capital_gain !== totals.filedQbiCapitalLimit ||
+    !f || f.line9_total_income !== income ||
+    f.line11_agi !== income - adjustments ||
+    (f.line10_adjustments ?? 0) !== adjustments ||
+    (f.line1a_wages ?? 0) !== wages || (f.line1z_total_wages ?? 0) !== wages
+  ) {
+    throw Error(
+      "Aggregation income limit must reconcile owned wages, business and investment records",
+    );
+  }
+  assertMultiBusinessInvestmentTax(pending, totals, input.filing_status);
+}
 
 function assertRpeScheduleBJoin(
   input: Form8995AInput,
@@ -33,6 +109,7 @@ function assertRpeScheduleBJoin(
   const calculated = calculateTwoBusinessAggregationLines(input),
     pending = context?.pending,
     filer = context?.filer;
+  aggregationOwner(input, filer);
   const source = input.rpe_aggregation_source!;
   const k1 = sCorpInputSchema.parse(pending?.k1_s_corp);
   if (k1.k1_s_corps.length !== 1) {
@@ -57,7 +134,8 @@ function assertRpeScheduleBJoin(
   const passiveInert = passive === undefined ||
     (record(passive) &&
       Object.entries(passive).every(([key, value]) =>
-        value === undefined || (key === "filing_status" && value === "single")
+        value === undefined ||
+        (key === "filing_status" && value === input.filing_status)
       ));
   const healthInert = health === undefined ||
     (record(health) &&
@@ -79,9 +157,7 @@ function assertRpeScheduleBJoin(
   if (
     !issued || !isDeepStrictEqual(issued.source, source) ||
     !isDeepStrictEqual(parent, input) || !isDeepStrictEqual(companion, input) ||
-    !filer || filer.filingStatus !== FilingStatus.Single ||
-    filer.primarySSN.replaceAll("-", "") !== source.recipient_tin ||
-    general?.filing_status !== "single" ||
+    general?.filing_status !== input.filing_status ||
     general?.qbi_no_prior_loss_or_suspended_loss_confirmed !== true ||
     general.qbi_not_patron_of_specified_cooperative_confirmed !== true ||
     !upstream || !isDeepStrictEqual(upstream.rpe_aggregation_source, source) ||
@@ -94,8 +170,8 @@ function assertRpeScheduleBJoin(
     f.line13_qbi_deduction !== calculated.parent.line39 ||
     f.line15_taxable_income + calculated.parent.line39 !==
       input.taxable_income ||
-    (f.line3a_qualified_dividends ?? 0) !== 0 ||
-    (f.line7_capital_gain ?? 0) !== 0 ||
+    (input.qbi_capital_sources === undefined &&
+      (f.line7_capital_gain ?? 0) !== 0) ||
     !passiveInert || !healthInert || [
       "schedule_c",
       "schedule_f",
@@ -117,18 +193,41 @@ function assertRpeScheduleBJoin(
   return calculated;
 }
 
-// The bounded two-business companion must reconcile the retained parent,
+// The direct-owner companion must reconcile the retained parent,
 // Schedule C sources, Schedule 1 adjustments, and finalized Form 1040.
 export function assertScheduleBAggregationJoin(
   input: Form8995AInput,
   context: MefBuildContext | undefined,
 ): ReturnType<typeof calculateTwoBusinessAggregationLines> {
+  assertAggregationInvestments(input, context);
+  if (input.filing_status === "mfs") {
+    const review = input.aggregation_mfs_review;
+    const general = context?.pending?.general as
+      | Record<string, unknown>
+      | undefined;
+    const retained = context?.pending?.qbi_aggregation as
+      | Record<string, unknown>
+      | undefined;
+    if (
+      !review || general?.filing_status !== "mfs" ||
+      general.mfs_spouse_itemizing !== false ||
+      String(general.taxpayer_ssn).replaceAll("-", "") !== review.owner_ssn ||
+      String(general.spouse_ssn).replaceAll("-", "") !== review.spouse_ssn ||
+      general.address_state !== review.mailing_address_state ||
+      !isDeepStrictEqual(retained?.aggregation_mfs_review, review)
+    ) {
+      throw Error(
+        "MFS aggregation must retain its current separate-income and spouse deduction source review",
+      );
+    }
+  }
   if (input.rpe_aggregation_source) {
     return assertRpeScheduleBJoin(input, context);
   }
   const calculated = calculateTwoBusinessAggregationLines(input);
   const pending = context?.pending;
   const filer = context?.filer;
+  aggregationOwner(input, filer);
   const source = scheduleCInputSchema.safeParse(pending?.schedule_c);
   const retainedParent = inputSchema.strict().safeParse(pending?.form8995a);
   const retainedCompanion = inputSchema.strict().safeParse(
@@ -142,9 +241,7 @@ export function assertScheduleBAggregationJoin(
     qbi_no_prior_loss_or_suspended_loss_confirmed: z.literal(true),
   }).passthrough().safeParse(pending?.general);
   if (
-    !filer || !pending || filer.filingStatus !== FilingStatus.Single ||
-    filer.primarySSN.replaceAll("-", "") !==
-      calculated.source.common_owner_ssn ||
+    !filer || !pending ||
     !retainedParent.success || !retainedCompanion.success ||
     JSON.stringify(retainedParent.data) !== JSON.stringify(input) ||
     JSON.stringify(retainedCompanion.data) !== JSON.stringify(input) ||
@@ -167,6 +264,17 @@ export function assertScheduleBAggregationJoin(
     throw new Error(
       "Form 8995-A Schedule B needs matching parent, companion, filer, and complete unadjusted owned Schedule C sources",
     );
+  }
+  if (input.filing_status === "mfj") {
+    const ownedSe = assertOwnedScheduleSE(
+      pending as Readonly<Record<string, Record<string, unknown>>>,
+      filer,
+    );
+    if (!ownedSe) {
+      throw new Error(
+        "Joint aggregation requires complete Schedule SE owner sources",
+      );
+    }
   }
   for (const member of calculated.source.members) {
     const retained = source.data.schedule_cs.find((item) =>
@@ -223,9 +331,7 @@ export function assertScheduleBAggregationJoin(
     !form1040.success ||
     form1040.data.line13_qbi_deduction !== calculated.parent.line39 ||
     form1040.data.line15_taxable_income + calculated.parent.line39 !==
-      input.taxable_income ||
-    (form1040.data.line3a_qualified_dividends ?? 0) !== 0 ||
-    (form1040.data.line7_capital_gain ?? 0) > 0
+      input.taxable_income
   ) {
     throw new Error(
       "Form 8995-A Schedule B income limit, dividends, and grouped deduction differ from Form 1040",

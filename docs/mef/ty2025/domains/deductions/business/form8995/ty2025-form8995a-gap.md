@@ -1,5 +1,1040 @@
 # TY2025 Form 8995-A coverage gap
 
+## October 14 patron Medicare rounding review repair
+
+The earlier Form8959 repair correctly rounded exact half dollars, but the single
+patron and independent-farm return validators still multiplied by floating-point
+0.009. Two complete source-return cases reproduced rejected correct exports:
+MFS proprietor wage excess103,500 and MFJ combined SE excess103,500 each require
+932, while their old validators expected931. Adjacent103,499/103,501 cases passed.
+
+Both validators now call the shared exact-integer Additional Medicare calculation.
+All six source-return cases prepare native returns and project the parent PDF
+fields, while twelve altered native/PDF-projection calls reject. The combined
+patron/Form8959 regression passes55 tests; lint, formatting and diff checks pass.
+This is arithmetic and projection verification, with no new rendered-PDF or IRS
+acceptance claim. Evidence: `.state/research/pr-fixes-2026-10-14/` retains the
+baseline4-pass/2-fail and corrected55-pass logs.
+
+## October 12 saved patron investment checkpoint
+
+[Saved-submission evidence](../../../../testing/ty2025-patron-submission-replay.md#october-12-investment-extension)
+now covers all 58 retained patron cases, including the twelve investment returns.
+All 116 return/manifest schema checks pass, every native return matches its prior
+packet after synthetic identity remapping, and both container orders preserve
+exact archives and request metadata. The replay rejects 969 saved-source and
+421 archive changes; all 51 submission tests pass. Investment sources, payroll,
+capital limits, preferential tax and NIIT survive JSON reopening together.
+No additional complete-return/PDF counts or parent-task closure are claimed.
+
+## October 12 cooperative patron investment checkpoint
+
+One-business cooperative patron returns now reconcile owned ordinary interest,
+ordinary/qualified dividends and capital-gain distributions through public QBI,
+complete native XML and PDF export. Previously capital contributions failed the
+public patron guard and investment copies failed final-return reconciliation.
+Primary and spouse investment owners, issuer/account/reference details, qualified
+dividend holding review, Schedule B rows, QBI capital contributions, preferential
+tax and NIIT source lines now use the retained investment-copy checks. Broker
+sales, other QBI activities, REIT/PTP and unreviewed sources retain their guards.
+
+Twelve complete synthetic cases cover farm and Schedule C health-plan businesses
+for Single, HOH, QSS, MFS and either joint proprietor, including the owner's W-2
+job and both spouses' issued investment copies where joint. Sources total 1,700
+interest, 3,000 ordinary dividends (including 1,500 qualified), and 1,800 capital
+distributions. All twelve independent Decimal calculations match QBI, taxable
+income, preferential tax, total tax and balance. The joint farm phase-in increases
+from 93.487% to 99.987%, changing the deduction from 27,263 to 26,228; NIIT is 247
+on 6,500 investment income. The capital adjustment on Form8995-A line34 is 3,300.
+These checks apply the [8995-A instructions](https://www.irs.gov/instructions/i8995a),
+[1040 qualified-dividend worksheet](https://www.irs.gov/instructions/i1040gi) and
+[NIIT instructions](https://www.irs.gov/instructions/i8960); active business income
+stays outside NIIT and independent tentative AMT remains below regular tax.
+
+All twelve complete XML returns pass cached IRS 2025v5.4 XSD (root SHA-256
+`e52dbd0fbd862929c9bc6a46db811fa2c7ae55e915651fc2679c21cb05184c6c`).
+Native income, QBI, parent/companion and final-tax amounts match the independent
+proof; document IDs are unique and references close. Twelve focused tests pass,
+including 204 native and 204 fresh-PDF rejections of changed owner/source amounts,
+missing references or holding review, capital limits, Schedule B, the preferential
+worksheet, NIIT source/total lines and final deduction. Investment mutations are
+mirrored across retained source copies before preparation. The related regression
+has130 passes and one error-message assertion failure in the aggregation test; the
+identical test fails on committed977d37f05 in a detached worktree, confirming
+existing deferred140. Five changed files lint clean; the existing Form8995
+`no-explicit-any` failure is deferred164. No introduced test failure was found.
+
+All 198 pages received qualified review:50 unique new images inspected on13
+contact sheets,112 exact prior observations and36 within-batch duplicates.
+Reopened PDFs have no fields or widgets. Schedule B payer rows and foreign-account
+answers, Form1040 distribution-only mark, Form8995-A capital/phase-in amounts,
+NIIT thresholds and final balances reconcile. Existing findings3/68/76 remain
+qualifications. Initial probes repeat deferred161 (public errors followed by
+successful preparation), and preexisting lint finding164 is recorded separately;
+neither deferred issue was repaired. Wider sources and IRS acceptance remain open.
+
+Evidence: `.state/research/form8995a-patron-investments-2026-10-12/` retains before/
+after probes, source/native/PDF packets, Decimal proof, XSD/test logs, image hashes,
+review mapping and observations. PR totals become153 complete returns/2,490
+qualified pages and8,132 export rejections. The468 native-only cases and114 saved
+SSTB/patron returns with1,808 source/archive rejections remain separate.
+
+## October 12 saved proprietor-wage submission checkpoint
+
+The [saved patron replay](../../../../testing/ty2025-patron-submission-replay.md#october-12-proprietor-wage-extension)
+now includes all12 proprietor-wage cases:46 saved patron returns total,92
+return/manifest XSD checks,559 saved-source and333 archive/container rejections.
+Complete native trees match prior packets after only identity remapping; both
+container orders preserve exact inner bytes. The linked checkpoint retains the
+source inventory and rejection breakdown. No PDF/complete-return count increases;
+existing presentation and external acceptance qualifications remain separate.
+
+## October 12 cooperative proprietor wage checkpoint
+
+Reviewed cooperative proprietors can now retain their own W-2 job alongside the
+farm or Schedule C business, including both spouses' wages on a joint return.
+Previously proprietor wages and dual wage collections blocked preparation. Public
+issued copies now join the primary and spouse collections, verify actual owners,
+and use only the proprietor's Social Security wages in that owner's Schedule SE.
+Both spouses' wages still enter joint income, withholding and Additional Medicare.
+The same employee cannot appear in both collections; source and final-tax guards
+remain required.
+
+Twelve synthetic source-backed complete returns cover Single, HOH, QSS, MFS,
+MFJ primary proprietor and MFJ spouse proprietor, each with farm and Schedule C
+health-insurance variants. Farm job wages of 60,000 leave a 116,100 Social Security
+base, producing SE tax 20,824 and deduction 10,412; C job Social Security wages of
+176,100 exhaust that base, producing SE tax 7,097 and deduction 3,549. The latter
+retains a reviewed 6,000 health deduction and employer-plan eligibility review.
+Independent Decimal arithmetic matches all twelve QBI deductions, taxable incomes,
+regular taxes, total taxes and balances, including joint wage withholding and the
+93.487% joint-farm phase-in. Sources: [Schedule SE instructions](https://www.irs.gov/instructions/i1040sse),
+[QBI instructions](https://www.irs.gov/instructions/i8995a),
+[Additional Medicare instructions](https://www.irs.gov/instructions/i8959) and
+[1040 computation worksheet](https://www.irs.gov/instructions/i1040gi).
+
+All twelve complete returns pass the cached IRS 2025v5.4 XSD (root SHA-256
+`e52dbd0fbd862929c9bc6a46db811fa2c7ae55e915651fc2679c21cb05184c6c`).
+Native W-2 owner/employer joins and six numeric fields per copy reconcile with
+sources; document IDs are unique and references close. Thirteen new tests and
+137 existing patron/W-2 tests pass. Altered owners, wages, withholding, employer
+identity, missing sources, switched collections, SE deductions and final tax
+produce 148 native and 148 fresh-PDF rejections; twelve duplicate-owner public
+cases produce error diagnostics, counted separately.
+
+All 186 pages received qualified review: 71 unique new images inspected across
+18 contact sheets, 42 exact prior observations and 73 within-batch duplicates.
+Reopened PDFs have no fields or widgets. Status marks, proprietor identities,
+SE/health amounts, QBI reductions and final balances reconcile. Existing findings
+3 on inherited business pages, 68 on header name order and 76 on applicable blank
+zeros remain qualifications; no deferred item was repaired. Multiple cooperatives,
+wider business combinations, source authenticity and IRS acceptance remain open.
+
+Evidence: `.state/research/form8995a-patron-wages-2026-10-12/` retains before/after
+probes, all source/native/PDF packets, independent proof, test and XSD logs,
+page hashes, review mapping, visual observations and mutation/run metadata.
+Ongoing PR totals: 141 complete returns/2,292 qualified pages and 7,724 export
+rejections; 468 native-only cases and 102 saved SSTB/patron returns with 1,502
+source/archive rejections remain separate. No frozen parent TODO is closed.
+
+## October 12 saved cooperative patron submission checkpoint
+
+[Saved-return and archive proof](../../../../testing/ty2025-patron-submission-replay.md)
+now covers all34 retained one-business patron cases: all five statuses and either
+joint proprietor, with farm/health, phase-in and income-cap sources. Complete
+native data matches earlier packets after only synthetic TIN remapping;34 return
+and34 manifest XSD checks pass. Both container orders preserve exact inner bytes.
+All341 reopened-source and245 archive/container alterations reject, and the full
+submission directory passes51 typed tests. This adds no new PDF/packet counts or
+runtime changes; prior qualifications, source authentication and IRS acceptance
+remain separate. See the linked checkpoint for case counts and evidence paths.
+
+## October 12 cooperative patron HOH, QSS and MFS checkpoint
+
+Reviewed one-business cooperative patron sources now support HOH, QSS and MFS
+through public calculation, complete native XML and PDF preparation. Previously
+these sources stopped at Single/MFJ status guards. The extension retains the
+existing seven farm, Schedule C health, income-cap, phase-in and unbound wage-limit
+cases for each added status: 21 complete returns.
+
+MFS requires the existing full-year noncommunity-property and spouse-deduction
+review, bound to the actual owner, spouse SSN and mailing state in both the pending
+return and final filer. Other statuses reject an MFS review. Source payroll,
+cooperative recipient, box 6 notice, allocation worksheet, one-business ownership,
+parent/companion amounts and final-tax checks remain required. MFS reconciliation
+uses its 125,000 Additional Medicare threshold; the underlying calculator already
+supports this threshold. No deferred rounding or diagnostic-policy repair is made.
+
+Independent Decimal arithmetic from synthetic books, payroll and cooperative
+records matches all 21 QBI deductions, taxable incomes, ordinary taxes, total taxes
+and balances. The proof applies the [Form 8995-A instructions](https://www.irs.gov/instructions/i8995a),
+[Additional Medicare thresholds](https://www.irs.gov/instructions/i8959) and
+[Form 1040 tax computation worksheet](https://www.irs.gov/instructions/i1040gi).
+The QSS phase-farm case falls below the QBI phase-in threshold after its standard
+deduction and correctly skips Part III. Active-business income adds no NIIT;
+independent AMT computations remain below regular tax in these cases.
+
+All 21 complete XML returns pass the cached IRS 2025v5.4 XSD, with unique document
+IDs and closed references. Root schema SHA-256:
+`e52dbd0fbd862929c9bc6a46db811fa2c7ae55e915651fc2679c21cb05184c6c`.
+The 22 new typed tests and 28 existing patron tests pass. Negative evidence includes
+42 public error diagnostics, 231 native rejections and 231 fresh-PDF rejections;
+source mutations are mirrored across all retained source copies. Final-filer spouse
+changes also reject. Public error diagnostics are not counted as export rejections.
+
+All 311 packet pages received qualified review: 101 unique new images were
+inspected on 26 contact sheets, 188 pages match previously reviewed PDF renderings,
+and 22 are exact duplicates within this batch. Reopened PDFs contain no fields or
+widgets. Filing-status marks, household names, business identities, source amounts,
+Schedule D reductions, parent deductions and final balances reconcile. Existing
+findings 3 (positive-business loss-only choices on prior images), 68 (header name
+order) and 76 (blank applicable zero totals) remain qualifications, not repairs or
+clean parity approval. Multiple cooperatives, wider business/owner combinations,
+authenticated source bytes and IRS business-rule acceptance remain open.
+
+Evidence: `.state/research/form8995a-patron-status-2026-10-12/` retains original
+blocked probes, 21 source/native/PDF packets, independent arithmetic, XSD logs,
+page hashes and review mapping, visual qualifications, mutation totals and run
+metadata. Ongoing PR totals become 129 complete return cases/2,106 qualified pages
+and 7,428 export rejections; the earlier 468 native-only boundary replays and
+68 saved SSTB returns/916 archive rejections remain separate. The 52 frozen main
+TODOs remain open and no future item is implemented.
+
+## October 12 service-classification zero-boundary audit
+
+All 39 previously reviewed service fixtures now run against all 12 existing
+zero-deduction endpoints: 468 native returns. This crosses legal, ten medical
+codes, consulting, financial advice/banking/loan arrangement, brokerage,
+investment management, actuarial, performing-arts/athletic roles and three
+personal-identity income kinds with all five filing statuses and either joint
+business owner. The 39 fixtures are source cases, not 39 distinct tax categories.
+
+Endpoints cover the exact phase-in ceiling, the adjacent dollar below it,
+rounded-zero applicable QBI and zero taxable-income cap. Each fixture
+retains the endpoint's payroll, ownership and investment records; two distinct
+synthetic invoices reconcile to its actual gross receipts. Personal-identity
+income is rebound to the endpoint's actual proprietor. Classification records
+survive in Schedule C and both Form8995-A/Schedule A retained source copies.
+
+All 468 full native returns pass local 2025v5.4 XSD. Independent Decimal arithmetic
+reconciles 429 final-tax results; 39 original MFS exact-half variants reproduce
+existing deferred 156, each one dollar below the independently calculated total
+and balance. Complete native ReturnData trees match the 12 previously reviewed
+accounting endpoints after exactly five intended activity/code/name text changes;
+all numerical fields, owner identities, documents and references remain equal.
+
+The audit rejects 2,208 native and 2,208 PDF export attempts with altered sources.
+These include missing classification, inconsistent receipts, excluded activities,
+mixed accounting claims and applicable financial-kind, professional-role and
+personal-identity owner/kind changes. Every retained business-source copy is
+changed together, so rejection cannot depend on comparing one unchanged copy.
+This tests saved/prepared source guards; the public diagnostic-to-preparation
+policy remains deferred 161.
+
+Twelve grouped tests cover the 468 combinations. Twelve original endpoint packet
+tests also pass after their unchanged independent expectations move to a shared
+fixture. All 190 regenerated baseline pages match their previously observed PNGs
+exactly; sources and complete native data also match. Reopened PDFs contain zero
+fields/widgets. Existing qualifications 3/68/76/156/163 carry forward.
+
+These are native-only service-boundary replays and repeated baseline packets:
+complete-packet and reviewed-PDF totals remain 108/1,795 for the ongoing PR,
+including 68 SSTB packets/1,066 pages. No runtime calculation or deferred issue is
+changed. This audit does not close the broader QBI parent or establish IRS
+business-rule acceptance or external source authenticity.
+
+Evidence: `.state/research/form8995a-sstb-service-zero-2026-10-12/` retains the
+four disjoint test-run logs, separate type check, 468 native/source/check sets,
+independent arithmetic and full-document comparison, 12 baseline PDF replays and
+190 exact render matches. `verify.py` requires all 468 successful case records;
+`review-baseline.py` requires all 12 baseline packets and 190 page matches.
+
+## October 12 endorsement, identity licensing and appearance checkpoint
+
+The one-business SSTB route now accepts reviewed endorsement, personal-identity
+licensing and appearance income for independent artists, writers and performers.
+The source identifies one income category, the individual whose identity earns
+the receipts, engagement records and distinct invoice amounts. That individual's
+SSN must equal the reviewed Schedule C owner; all receipts must reconcile to
+gross revenue, with no other revenue category, returns or allowances.
+
+The [IRS SSTB definitions](https://www.irs.gov/instructions/i8995a) identify these
+three categories. This checkpoint uses the independent-artist/writer/performer
+[Schedule C code711510](https://www.irs.gov/instructions/i1040sc) with an explicit
+activity review; the code alone does not classify ordinary sales or services.
+Mixed categories, other individuals' identity income, wider business codes and
+multiple-business claims remain outside this retained route.
+
+Nine complete returns cover all five statuses, either joint owner, payroll and
+owner-only businesses, partial/capped wage bases and the investment-income cap.
+Independent Decimal calculations reconcile QBI, SE tax, Additional Medicare,
+NIIT, preferential tax, total tax and payment/refund amounts:
+
+| Case | QBI deduction | Taxable income | Total tax | Refund or owed |
+| --- | ---: | ---: | ---: | --- |
+| appearance-hoh | 1,561 | 219,364 | 46,293 | refund 3,707 |
+| appearance-income-cap | 2,474 | 211,698 | 30,644 | owed 30,644 |
+| appearance-spouse-partial | 2,830 | 418,592 | 93,544 | owed 43,544 |
+| endorsement-primary-capped | 2,872 | 420,178 | 90,796 | owed 40,796 |
+| endorsement-qss | 3,711 | 209,339 | 36,739 | refund 13,261 |
+| endorsement-single | 1,934 | 226,866 | 50,433 | owed 433 |
+| licensing-mfs | 1,934 | 226,866 | 51,108 | owed 1,108 |
+| licensing-primary-partial | 3,811 | 417,611 | 93,231 | owed 43,231 |
+| licensing-spouse-capped | 3,890 | 419,160 | 90,470 | owed 40,470 |
+
+All nine native returns pass local2025v5.4 XSD. The packet checks reject108
+native and108 PDF source alterations, including wrong individuals and unsupported
+income kinds. All108 public alterations report errors;45 preparations reject
+and63 repeat existing deferred161 when preparation is called after graph errors.
+This reproduces that issue without changing the error-handling policy.
+
+All142 PDF pages received qualified observation:23 newly inspected images in
+six contact sheets,115 exact previously observed matches and four within-batch
+duplicates. Source activities, names, business codes, owner amounts and Schedule A
+percentages reconcile. Reopened outputs contain zero fields/widgets. Existing
+Schedule C conditional marks3, header68 and required-zero76 findings repeat.
+
+The nine focused tests and214 grouped SSTB/Schedule C/submission tests pass
+(223 typed tests, zero failures or ignored tests); focused lint and diff checks
+pass. The expanded [saved-return proof](../../../../testing/ty2025-sstb-submission-replay.md)
+now includes all68 retained SSTB returns,136 XSD checks and916 source/archive
+rejections, verified by a separate50-test submission gate.
+
+Evidence: `.state/research/form8995a-sstb-identity-2026-10-12/` retains source
+records, native/PDF packets, schema provenance, independent arithmetic, mutation
+outcomes, rendered images and review mappings. Source records are synthetic;
+engagement references do not authenticate external contracts. Broader parent
+completion and IRS acceptance remain open.
+
+## October 12 actuarial, performing-arts and athletic source checkpoint
+
+The retained one-business Schedule A path now accepts reviewed actuarial science,
+performing arts and athletics. Classification records bind professional services,
+roles where applicable, engagement references and distinct invoice receipts to
+all Schedule C revenue. Actuarial records confirm services by an actuary and no
+other service receipts; arts and athletic records confirm the required skills
+and exclude equipment/facility operation and broadcasting. Performer and athletic
+roles are distinct; a facility operator cannot pass as either.
+
+This follows the [IRS SSTB definitions](https://www.irs.gov/instructions/i8995a).
+[TY2025 Schedule C codes](https://www.irs.gov/instructions/i1040sc) corroborate
+actuarial services541990, independent performers711510, performing companies711100
+and spectator sports711210. The activity code does not establish classification
+without the reviewed service records. Mixed excluded activities, other fields,
+multiple businesses and wider source combinations remain outside this checkpoint.
+
+Nine complete packets cover all five statuses, either joint owner, payroll and
+owner-only businesses, partial/capped wage bases and the investment-income cap.
+Cases include actuarial services, an actor, a singer-owned performing company,
+a director, an athlete, a coach and a team manager. Their income sources retain
+independently reconciled investment fixtures; source records are synthetic and
+do not authenticate customer records or professional status.
+
+| Case | QBI deduction | Taxable income | Total tax | Refund or owed |
+| --- | ---: | ---: | ---: | --- |
+| actor-mfs | 1,934 | 226,866 | 51,108 | owed 1,108 |
+| actuary-income-cap | 2,474 | 211,698 | 30,644 | owed 30,644 |
+| actuary-primary-partial | 3,811 | 417,611 | 93,231 | owed 43,231 |
+| actuary-single | 1,934 | 226,866 | 50,433 | owed 433 |
+| athlete-hoh | 1,561 | 219,364 | 46,293 | refund 3,707 |
+| coach-spouse-partial | 2,830 | 418,592 | 93,544 | owed 43,544 |
+| director-primary-capped | 2,872 | 420,178 | 90,796 | owed 40,796 |
+| manager-spouse-capped | 3,890 | 419,160 | 90,470 | owed 40,470 |
+| singer-company-qss | 3,711 | 209,339 | 36,739 | refund 13,261 |
+
+The nine new packet tests and213 related SSTB/Schedule C/submission tests pass
+(222 typed tests, zero failures or ignored tests); focused formatting/lint and
+diff checks pass. The expanded saved-return replay covers59 returns and768
+rejected source/archive alterations; details are in the
+[saved-return proof](../../../../testing/ty2025-sstb-submission-replay.md).
+
+All nine full native returns pass local2025v5.4 XSD. Independent Decimal
+calculations reconcile final tax, owner SE, Additional Medicare, NIIT, income
+limits and preferential rates. The packet harness rejects96 native and96 PDF
+alterations, including six incompatible professional roles. All96 public
+alterations report graph errors:42 preparations reject and54 repeat deferred161.
+The accepted-after-error XML files remain separate from positive packet counts.
+
+All142 PDF pages received qualified observation:25 new images inspected in
+seven contact sheets,115 exact prior matches and two within-batch duplicates.
+Business names, roles, codes, owners, amounts and Schedule A percentages reconcile.
+Reopened outputs contain zero fields/widgets. Existing Schedule C choices3,
+header68 and required-zero76 qualifications repeat without repair.
+
+Evidence: `.state/research/form8995a-sstb-professional-2026-10-12/` retains source
+records, native/PDF packets, schema provenance, independent arithmetic, mutation
+outcomes, rendered images and review mappings. Broader parent completion,
+external source authentication and IRS acceptance remain open.
+
+## October 12 financial-service source checkpoint
+
+The retained one-business Schedule A path now accepts reviewed financial advice,
+investment banking, loan arrangements, securities brokerage and investment
+management. Separate classification records bind client-service assertions,
+exclusion review, engagement references and distinct fee invoices to all Schedule C
+receipts. Financial-advice, investment-banking and loan-arrangement reviews must
+match codes 523900, 523150 and 522300 respectively; securities brokerage uses
+523150 and investment management uses 523900. Codes corroborate the reviewed
+service rather than establishing its classification alone.
+
+The [IRS SSTB definitions](https://www.irs.gov/instructions/i8995a) distinguish
+these services from direct lending/deposit-taking, real-estate or insurance
+brokerage, and direct real-property management. The new source contract records
+those exclusions. [TY2025 Schedule C codes](https://www.irs.gov/instructions/i1040sc)
+identify the applicable principal activity. Mixed excluded services, trading,
+dealing and other unsupported combinations remain outside this checkpoint.
+
+Nine source-backed packets cover all five filing statuses, either joint owner,
+partial/capped wage bases, payroll/owner-only businesses and the investment-income
+cap. Their financial inputs reuse independently reconciled investment cases;
+new business names, activities, codes and fee records pass the same public,
+native and PDF source checks. Synthetic engagements and invoice references do
+not authenticate external customer records.
+
+| Case | QBI deduction | Taxable income | Total tax | Refund or owed |
+| --- | ---: | ---: | ---: | --- |
+| advice-primary-capped | 2,872 | 420,178 | 90,796 | owed 40,796 |
+| advice-single | 1,934 | 226,866 | 50,433 | owed 433 |
+| banking-mfs | 1,934 | 226,866 | 51,108 | owed 1,108 |
+| broker-primary-partial | 3,811 | 417,611 | 93,231 | owed 43,231 |
+| broker-spouse-capped | 3,890 | 419,160 | 90,470 | owed 40,470 |
+| loan-hoh | 1,561 | 219,364 | 46,293 | refund 3,707 |
+| management-income-cap | 2,474 | 211,698 | 30,644 | owed 30,644 |
+| management-qss | 3,711 | 209,339 | 36,739 | refund 13,261 |
+| management-spouse-partial | 2,830 | 418,592 | 93,544 | owed 43,544 |
+
+The nine new packet tests and204 existing SSTB, Schedule C and submission tests
+pass (213 typed tests, zero failures or ignored tests). Focused formatting/lint
+and diff checks pass.
+
+All nine full native returns pass local2025v5.4 XSD, and independent Decimal
+calculations match final tax, SE, Additional Medicare, NIIT, income limits and
+preferential rates. The shared packet harness rejects94 native and94 PDF
+alterations, including four financial-service-kind/code conflicts. All94 public
+alterations report graph errors:36 preparations reject and58 repeat deferred161.
+Those58 accepted-after-error XML files are retained separately and are not
+positive filing packets or rejection successes.
+
+All142 PDF pages received qualified observation:24 new unique images inspected
+in six contact sheets,115 exact prior matches and three within-batch duplicates.
+Names, codes, activities, owner amounts and Schedule A percentages reconcile;
+all reopened outputs have zero fields/widgets. Existing Schedule C choices3,
+identity/header68 and required-zero76 qualifications repeat without repair.
+
+Evidence: `.state/research/form8995a-sstb-financial-2026-10-12/` retains source
+records, native/PDF packets, XSD provenance, independent arithmetic, mutation
+outcomes, rendered images and review mappings. Broad parent completion, external
+source authenticity and IRS acceptance remain open.
+
+## October 12 legal, medical and consulting source checkpoint
+
+The existing one-business Schedule A path now accepts reviewed legal, medical
+and consulting services alongside its retained accounting source. The new
+classification record binds distinct invoice references and whole-dollar service
+receipts to gross Schedule C revenue, with engagement records, activity review,
+and field-specific exclusions. Both the public calculation and native/PDF source
+checks use that evidence; a business code alone cannot classify the activity.
+The legacy accounting review remains mutually exclusive with the new review.
+
+The [2025 SSTB definitions](https://www.irs.gov/instructions/i8995a) distinguish
+professional medical care, legal skills and separately paid consulting advice
+from excluded activities. The source contract records the applicable exclusion
+review and rejects incomplete receipts, duplicate invoice references, conflicting
+classification, activity mismatch, returns/allowances and other income.
+[Schedule C codes](https://www.irs.gov/instructions/i1040sc) corroborate law541100,
+consulting541600 and practitioner health621111/621112/621210/621310/621320/621330/
+621340/621391/621399 plus veterinary541940. These are reviewed all-service
+inventories; mixed activities and other SSTB fields remain outside this proof.
+
+Twelve complete packets cover each accepted new code, all five statuses, either
+joint proprietor, payroll/owner-only workforces, partial/capped owner wage bases,
+qualified dividends/capital distributions and the binding income cap. Independent
+Decimal source arithmetic reconciles all12 final taxes, owner SE, preferential
+tax, Additional Medicare, NIIT and zero AMT. Retained evidence is synthetic and
+does not authenticate professional status or customer documents.
+
+| Case | QBI deduction | Taxable income | Total tax | Refund or owed |
+| --- | ---: | ---: | ---: | ---: |
+| consulting-mfs | 1,934 | 226,866 | 51,108 | owed1,108 |
+| health-541940 | 1,934 | 226,866 | 50,433 | owed433 |
+| health-621111 | 1,934 | 226,866 | 50,433 | owed433 |
+| health-621112 | 2,474 | 211,698 | 30,644 | owed30,644 |
+| health-621210 | 1,934 | 226,866 | 51,108 | owed1,108 |
+| health-621310 | 1,561 | 219,364 | 46,293 | refund3,707 |
+| health-621320 | 3,711 | 209,339 | 36,739 | refund13,261 |
+| health-621330 | 3,811 | 417,611 | 93,231 | owed43,231 |
+| health-621340 | 2,830 | 418,592 | 93,544 | owed43,544 |
+| health-621391 | 2,872 | 420,178 | 90,796 | owed40,796 |
+| health-621399 | 3,890 | 419,160 | 90,470 | owed40,470 |
+| law-single | 1,934 | 226,866 | 50,433 | owed433 |
+
+The12 new packet tests,48 related SSTB regressions and104 Schedule C regressions
+pass (164 typed tests, zero failures); focused lint and diff checks pass.
+All12 native returns pass full local2025v5.4 XSD. Ten mirrored alterations per
+packet reject120 native and120 fresh-PDF exports. All120 corresponding public
+alterations report graph errors;48 also reject preparation, while72 still prepare
+through existing deferred161. The tests explicitly preserve those accepted-after-
+error outputs, rather than counting them as successful rejection checks. No
+preparation-after-error fix is included.
+
+All190 PDF pages received qualified observation:36 new unique images inspected
+in nine contact sheets and154 exact prior matches. Business names, activity
+codes, owners and amounts reconcile. Reopened outputs contain zero fields/widgets.
+Existing positive Schedule C choices3, headers68 and blank zeros76 repeat without
+repair. Broader source combinations and IRS acceptance remain open.
+
+Evidence: `.state/research/form8995a-sstb-services-2026-10-12/` retains source
+records, independent calculations, full native/PDF packets, schema provenance,
+mutation outcomes including the72 accepted-after-error XML files, rendered pages
+and review mappings. The frozen main checklist remains unchanged.
+
+## October 12 SSTB zero deduction and inclusive endpoint checkpoint
+
+Retained Schedule C SSTBs now prepare a zero deduction at the inclusive upper
+phase endpoint, after whole-dollar rounding, and when qualified dividends and
+capital distributions exhaust the income cap. Legacy staged zero claims still
+reject. Parent wage/property limits become zero when rounded QBI is zero, while
+Schedule A retains its own applicable amounts. This follows the
+[Form8995-A instructions](https://www.irs.gov/instructions/i8995a) for Exception2,
+parent lines4/7 and the income limit.
+
+Twelve complete packets cover all five statuses, either joint proprietor,
+partial/capped owner wage bases, near-upper rounding and single/joint zero income
+caps. All have a zero QBI deduction. The rounded-QBI case retains Schedule A
+applicable wages1 with parent wages0. Cap cases retain business QBI929 and
+capital/qualified-dividend totals221,800 or441,800, exceeding pre-QBI taxable income.
+
+| Case | Taxable income | Regular tax | Independent total tax | Refund or owed |
+| --- | ---: | ---: | ---: | ---: |
+| hoh-upper | 247,300 | 53,899 | 55,470 | owed5,470 |
+| joint-primary-upper | 494,600 | 111,837 | 118,526 | owed68,526 |
+| joint-spouse-near-upper | 494,599 | 111,837 | 118,526 | owed68,526 |
+| joint-spouse-upper | 494,600 | 111,837 | 115,255 | owed65,255 |
+| joint-spouse-zero-income-cap | 412,929 | 47,434 | 54,964 | owed54,964 |
+| mfs-upper-nonhalf | 247,300 | 55,638 | 57,813 | owed7,813 |
+| mfs-upper | 247,300 | 55,638 | 57,814 | owed7,814 |
+| qss-upper | 247,300 | 44,749 | 46,391 | refund3,609 |
+| single-near-upper | 247,299 | 55,638 | 57,138 | owed7,138 |
+| single-rounded-qbi | 247,299 | 55,638 | 56,420 | owed6,420 |
+| single-upper | 247,300 | 55,638 | 57,139 | owed7,139 |
+| single-zero-income-cap | 208,679 | 24,049 | 25,119 | owed25,119 |
+
+All12 native/PDF final-tax amounts match independent Decimal calculations.
+The exact-half MFS case now computes Medicare wage tax932, total57,814 and
+owed7,814. Its neighboring nonhalf case preserves the endpoint and reconciles.
+
+The12 complete packet tests and36 related regressions pass (48 total). All12
+native returns pass full local2025v5.4 XSD. Nineteen alterations per packet reject
+both exports (456 attempts), including removal of the retained zero-claim source.
+Forty-eight public alterations and seven above-upper cases reject (55 checks).
+
+All190 PDF pages received qualified observation:95 new unique images in24
+contact sheets,69 exact prior matches and26 within-batch duplicates. Reopened
+outputs contain zero canonical fields/widgets. Existing positive Schedule C
+choices3, headers68 and blank zeros76 repeat. The existing parent builders also
+populate PartIII when line10 is not less than line3; new deferred163 records
+that conditional-projection issue without repair. These are reviewed test
+artifacts, not approved filing packets. The broad parent task remains open.
+
+Sources, independent proof, XSD logs/digest, commands, original rejected inputs
+and visual mappings are retained under
+`.state/research/form8995a-sstb-zero-2026-10-12/`.
+
+## October 12 SSTB investment sources and income cap checkpoint
+
+Reviewed accounting SSTBs now retain owned interest, ordinary/qualified dividends
+and capital distributions through the public graph, parent Form8995-A,
+ScheduleA, full native return and PDF. The qualified-dividend review answer is
+bound to the actual source total. Complete-return replay verifies copy identities,
+recipient ownership, qualified holding evidence, distinct capital contributions,
+wage/business income, filed half-SE and the final preferential-tax worksheet.
+Historical staged claims without the ScheduleC source retain their zero-gain guard.
+
+Nine complete packets cover all five filing statuses, either joint business
+owner, mixed-spouse portfolios, payroll/no-employees and partial/capped Social
+Security wage bases. Eight retain interest1,700, ordinary dividends3,000,
+qualified dividends1,500 and distributions1,800, giving line34 of3,300. The
+income-cap case has no outside wages and dividends200,000, all qualified: its
+line34 is201,800, line35 is12,372, and the2,474 income limit caps the3,438
+business component. This follows the
+[Form8995-A line34 instructions](https://www.irs.gov/instructions/i8995a).
+
+| Case | QBI deduction | Taxable income | Regular tax | Total tax | Refund or owed |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| hoh-owner-only | 1,561 | 219,364 | 44,959 | 46,293 | 3,707 |
+| mfs-payroll | 1,934 | 226,866 | 49,099 | 51,108 | 1,108 |
+| primary-capped-owner-only | 2,872 | 420,178 | 88,022 | 90,796 | 40,796 |
+| primary-partial-payroll | 3,811 | 417,611 | 87,201 | 93,231 | 43,231 |
+| qss-payroll | 3,711 | 209,339 | 35,652 | 36,739 | 13,261 |
+| single-income-cap | 2,474 | 211,698 | 25,490 | 30,644 | 30,644 |
+| single-payroll | 1,934 | 226,866 | 49,099 | 50,433 | 433 |
+| spouse-capped-payroll | 3,890 | 419,160 | 87,696 | 90,470 | 40,470 |
+| spouse-partial-owner-only | 2,830 | 418,592 | 87,514 | 93,544 | 43,544 |
+
+HOH and QSS receive refunds; the other cases owe. Independent Decimal arithmetic
+reconciles profit, owner SE bases, whole-dollar half-SE, applicable percentages,
+wage-phase reductions, income caps, preferential tax, Additional Medicare, NIIT,
+zero AMT and payments against both prepared data and native XML. The cap case
+uses the published Single9,850–9,900 tax-table cell988 under the
+[2025 tax tables](https://www.irs.gov/pub/irs-pdf/i1040tt.pdf); its NIIT is1,137.
+QSS owes no NIIT; the other seven regular portfolios owe247 each.
+
+Nine complete-return tests pass full2025v5.4 XSD;29 related typed regressions
+and the additional source-boundary test pass (39 tests total). Eighteen altered records per case
+reject both native and fresh-PDF export (324 attempts), including mirrored
+investment copies, unrelated owners, duplicate copies, holding review, capital
+contribution identity/amount, changed review answers and stale final-tax inputs.
+Thirty-six public source/preparation alterations reject. One additional test
+prepares interest-only, ordinary-plus-capital and qualified-only inventories,
+then rejects each inverted review answer (three more public rejections).
+Reversing investment copy order preserves tax and successful preparation.
+
+All142 PDF pages received qualified observation:58 newly inspected images in15
+contact sheets,70 exact matches to previously observed images and14 within-batch
+duplicates. Printed limits, amounts, percentages and balances reconcile; reopened
+PDFs have no canonical fields or Widget annotations. Existing positive ScheduleC
+skip choices3, name/header68 and blank-zero76 issues repeat without repair.
+Broader SSTB categories, multiple businesses, authenticated records and IRS
+acceptance remain open. Evidence, commands, original eight input rejections,
+source packets, XSD logs and independent/visual review mappings are retained in
+`.state/research/form8995a-sstb-investments-2026-10-12/`.
+
+## October 12 joint SSTB owners and mixed wages checkpoint
+
+A reviewed accounting SSTB may now belong to either spouse on a joint return,
+with issued external wage copies for both spouses. The public source selects
+the actual proprietor; the common native/PDF validation replays the existing
+owned Schedule SE ledger and selects that proprietor's computation. It checks
+the actual return/header identities, business source, per-owner wage base and
+filed SE deduction instead of treating the primary filer and combined wages as
+the sole owner. Nonjoint spouse ownership remains excluded.
+
+Four complete cases retain one28,431-profit business and two wage copies totaling
+420,000, with payroll10,000 or an owner-only workforce review. The proprietor's
+Social Security wages are100,000 or176,100. The first pair owes SE tax4,017 with
+half-SE2,009; the capped pair owes761 with half-SE381. This owner separation
+follows the [Schedule SE joint-return instructions](https://www.irs.gov/instructions/i1040sse).
+Joint Additional Medicare is1,766 in all four cases; NIIT and AMT are zero.
+The applicable SSTB percentages are79.678% or78.05%, using the existing joint
+threshold394,600 and100,000 phase range.
+
+| Case | QBI deduction | Taxable income | Regular tax | Total tax | Owed |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Primary partial payroll | 4,165 | 410,757 | 85,568 | 91,351 | 41,351 |
+| Spouse partial owner-only | 3,355 | 411,567 | 85,827 | 91,610 | 41,610 |
+| Primary capped owner-only | 3,418 | 413,132 | 86,328 | 88,855 | 38,855 |
+| Spouse capped payroll | 4,275 | 412,275 | 86,054 | 88,581 | 38,581 |
+
+Independent Decimal proof reconciles profit, owner Social Security/Medicare,
+whole-dollar half-SE, applicable QBI/payroll amounts, phase reductions, ordinary
+tax, zero AMT, payments and owed against native XML. All four complete-return
+tests,16 related typed regressions and full2025v5.4 XSD validations pass. Fifteen altered records per case
+reject native and fresh-PDF export (120 attempts), including copied owner/payroll
+changes, retained owner computations and changed header spouse identity. Twenty
+public source/preparation changes reject. Reversing both wage copies preserves
+tax and successful preparation.
+
+All60 packet pages received qualified review through38 unique images across ten
+contact sheets and22 exact within-batch duplicates. Schedule C and SE retain the
+actual proprietor, while primary-only/reversed8995A names, blank required zeros
+and skipped Schedule C choices repeat deferred68/76/86. Original spouse-source
+graph errors that still prepared incomplete returns repeat161; those failures
+remain in the before log. Broader SSTB categories, multiple businesses, investment
+combinations, source authenticity and IRS acceptance remain open. Evidence:
+`.state/research/form8995a-sstb-joint-owners-2026-10-12/`, including source/packets,
+test logs, independent proof and observed-image mappings.
+
+## October 12 HOH and QSS public SSTB source checkpoint
+
+The public Schedule C accounting-SSTB dispatcher now accepts head-of-household
+and qualifying-surviving-spouse filing statuses. The calculator and native/PDF
+builders already supported both; the public status filter prevented their
+reviewed source records from reaching those builders. Existing payroll,
+classification, owner, household and filed-half-SE checks continue to apply.
+
+Four complete returns cover both statuses with employee payroll and with a
+reviewed owner-only workforce. Each retains profit28,431, wage income210,000,
+SE tax761, deductible half-SE381, QBI28,050 and AGI238,050. HOH uses standard
+deduction23,625 and pre-QBI income214,425; QSS uses31,500 and206,550. Both use
+the nonjoint197,300 QBI threshold and50,000 phase range under the
+[2025 Form8995-A instructions](https://www.irs.gov/instructions/i8995a).
+The resulting applicable percentages are65.75% and81.5%.
+
+| Case | QBI deduction | Taxable income | Regular tax | Total tax | Refund |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| HOH payroll | 3,552 | 210,873 | 42,803 | 43,890 | 6,110 |
+| HOH owner-only | 2,426 | 211,999 | 43,164 | 44,251 | 5,749 |
+| QSS payroll | 4,480 | 202,070 | 34,283 | 35,370 | 14,630 |
+| QSS owner-only | 3,726 | 202,824 | 34,449 | 35,536 | 14,464 |
+
+Independent Decimal arithmetic reconciles source payroll, rounded applicable
+amounts, parent phase reductions, zero AMT, Additional Medicare326 and final tax
+against emitted XML; ordinary tax uses the
+[2025 tax worksheet](https://www.irs.gov/pub/irs-pdf/i1040tt.pdf).
+All four focused tests,20 related typed regressions and four full2025v5.4 XSD validations pass. Twelve altered
+records per case reject native and fresh-PDF export (96 attempts);16 public
+owner/payroll/review/household changes reject at calculation or preparation.
+
+All58 packet pages received qualified visual review through29 unique rendered
+images in eight contact sheets and29 exact within-batch duplicates. Both status
+headers correctly print Avery Child. Existing68 reversed component names,
+76 blank required zeros and86 Schedule C skipped-line choices remain deferred.
+The original pre-change cases also repeat deferred161: graph errors could still
+produce incomplete exports without QBI. That general defect was not repaired.
+Broader SSTB categories, joint spouse ownership, source authenticity and IRS
+acceptance remain open. Evidence is retained under
+`.state/research/form8995a-sstb-statuses-2026-10-12/`, including original failures,
+complete packets, mutation logs, independent arithmetic and observed page hashes.
+
+## October 12 joint aggregation investment owners checkpoint
+
+Joint direct-business and intact S-corporation aggregations now retain investment
+copies belonging to either actual spouse, including spouse-only portfolios and
+mixed ownership. The shared investment guard accepts a second owner only when
+the aggregation is a joint return; its default remains primary-only. Missing,
+changed, duplicate and unrelated owners reject, and the separate-filing spouse's
+portfolio still rejects for MFS.
+
+Four complete returns retain two interest copies totaling 1,700, ordinary
+dividends 3,000, qualified dividends 1,500, capital distributions 1,800 and two
+identified broker transactions. Long-term gain is 5,800; short-term gain of 1,000
+or loss of 1,000 gives total gain 6,800 or 4,800. Form 8995-A line 34 therefore
+uses 7,300 or 6,300, respectively, under the
+[line 34 instructions](https://www.irs.gov/instructions/i8995a).
+Both issuer statements remain byte-for-byte intact.
+
+| Case | QBI deduction | Taxable income | Regular tax | Total tax | Owed |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| direct-primary-spouse-portfolio | 36,525 | 419,975 | 87,277 | 97,092 | 37,090 |
+| direct-spouse-mixed-portfolio | 37,130 | 417,370 | 86,613 | 96,352 | 36,350 |
+| rpe-primary-spouse-portfolio | 68,747 | 359,253 | 71,348 | 71,709 | 61,709 |
+| rpe-spouse-mixed-portfolio | 66,250 | 463,750 | 101,285 | 101,722 | 91,102 |
+
+Independent decimal calculations reconcile source profit, half-SE allocations,
+phase reductions, income limits, preferential tax, zero AMT, Medicare, NIIT and
+payments against XML. NIIT is 437 or 361. Reversing all investment inventories
+preserves tax and successful preparation. Five focused and 26 related typed
+tests pass. Four full 2025v5.4 returns pass XSD; 98 altered native/fresh-PDF
+export attempts and 20 public-source/preparation attempts reject.
+
+The 87-page packets received qualified visual review: 34 new unique page images
+were observed in nine contact sheets, 51 matched previously observed images and
+two duplicated current images. Final regeneration changed no page image. Native
+Schedule D totals/indicators still repeat deferred15; component names and blank
+zeros repeat68/76. These findings remain deferred, not repaired. Positive net
+capital gains here do not resolve deferred159/160 net-loss behavior. Schema
+validation, source authenticity, business-rule acceptance and IRS acceptance
+remain separate claims; broader elections and investment categories remain open.
+Evidence is retained in
+`.state/research/form8995a-aggregation-joint-investments-2026-10-12/`, including
+source packets, test logs, independent proof and visual-review mappings.
+
+## October 12 aggregation with investment-income checkpoint
+
+Direct-owner and intact S-corporation aggregations now accept retained interest,
+ordinary/qualified dividends and capital-gain distributions. The RPE dispatcher
+preserves investment source contributions instead of rejecting them and forcing
+a zero capital limit. The common native/PDF join replays identified investment
+copies, recipient ownership, qualified-dividend holding review, payer rows,
+capital contributions, wage/business income, adjustments and final preferential
+tax. Group business income remains separate from portfolio income.
+
+The [Form8995-A line34 instructions](https://www.irs.gov/instructions/i8995a)
+include qualified dividends and net capital gain in the income limitation.
+Each new case retains two interest sources totaling1,700 and two dividend sources
+with ordinary3,000, qualified1,500 and capital distributions1,800. Thus line34
+is3,300. The three RPE cases preserve the original issuer statements byte-for-byte.
+Five direct cases and three RPE cases span all five filing statuses, including
+spouse-owned businesses, phase-in, full limitation and a binding income cap.
+Investment copies in this checkpoint belong to the primary filer; other owner
+inventories and wider investment categories remain outside this proof.
+
+| Case | QBI deduction | Taxable income | Regular tax | Total tax | Refund / owed |
+| --- | ---: | ---: | ---: | ---: | --- |
+| hoh-direct-four | 8,574 | 223,363 | 46,239 | 48,763 | 11,237 refund |
+| joint-primary-rpe-phase | 68,860 | 356,140 | 70,871 | 71,118 | 61,118 owed |
+| joint-spouse-direct-four | 38,038 | 413,462 | 85,873 | 95,498 | 35,496 owed |
+| joint-spouse-rpe-full | 66,250 | 458,750 | 100,365 | 100,612 | 89,992 owed |
+| mfs-direct-three | 7,782 | 222,164 | 47,594 | 50,442 | 9,558 refund |
+| qss-direct-three | 9,739 | 204,457 | 34,578 | 36,504 | 23,496 refund |
+| single-direct-three | 7,782 | 222,164 | 47,594 | 49,767 | 10,233 refund |
+| single-rpe-income-cap | 45,490 | 185,260 | 37,012 | 37,259 | 37,259 owed |
+
+Independent decimal arithmetic checks source profits, allocated half-SE, group
+wage/property limits, phase reductions, the income cap, regular tax, zero AMT,
+Medicare, NIIT and payments against native XML. The Single RPE case caps the
+48,000 business component at45,490:20% of230,750 minus3,300. QSS income245,696
+is below the250,000 NIIT threshold; all seven other cases have247 NIIT on6,500
+investment income. The [NIIT instructions](https://www.irs.gov/instructions/i8960)
+and [2025 tax worksheet](https://www.irs.gov/pub/irs-pdf/i1040tt.pdf) support those
+status-specific computations. Qualified dividends/gains receive15% in these cases.
+
+All eight complete packet tests and eight full2025v5.4 return XSD validations
+pass. Fifteen altered records per case reject both native and fresh-PDF export
+(240 attempts), covering owners, copies, holding evidence, contribution identity
+and amount, capital limit, wages, AGI, gross income, payer rows, deduction and tax.
+Twenty-four invalid public-source/preparation cases reject; reversing investment
+inventories preserves final tax and native preparation for all eight cases.
+Related direct/joint/nonjoint aggregation and investment/WOTC regression passes
+45/0 (5m40s); the final retained path-only adapted RPE gate passes4/0 (20s).
+Original fixture-path issues remain deferred65/66. Final packet rerendering
+introduced no new image hashes.
+
+The155 packet pages include annual and issued disclosures. All52 new distinct
+images were observed on13 contact sheets;94 pages exactly match prior observed
+images and nine are within-batch duplicates. Reopened packets have no remaining
+fields/widgets. Printed phases, line34/35/36/39, owners, member/continuation rows,
+annual disclosures, investment totals and final amounts reconcile. Existing
+68/76 presentation qualifications repeat: primary-only or reversed component
+names, MFS spouse-name duplication and some blank required zeros. No new
+presentation finding or deferred repair is recorded.
+
+Evidence: `.state/research/form8995a-aggregation-investments-2026-10-12/` retains
+before/after replays, sources/pending/XML/PDFs, test/XSD logs, independent decimal
+proof, rendered-page mapping and visual review. Synthetic source records do not
+prove external authenticity or IRS acceptance. Other source combinations,
+elections and deferred findings remain open; the broad main task stays open.
+
+## October 12 nonjoint aggregation filing-status checkpoint
+
+Direct-owner and intact S-corporation aggregations now support HOH, QSS and
+reviewed MFS filings. Each uses the nonjoint197,300 threshold and50,000 phase-in
+range from the [2025 Form8995-A instructions](https://www.irs.gov/instructions/i8995a).
+QSS retains its joint-sized standard deduction and tax brackets while using
+the nonjoint QBI band. HOH/QSS fixtures retain reviewed nondependent qualifying
+children and the related household and surviving-spouse facts.
+
+MFS requires the existing separate-property review extended with the actual
+business owner's TIN: both domiciles, no elected community regime or retained
+community income, separately owned wages/business income and a nonitemizing
+spouse. Native and fresh-PDF export bind that review to the retained public
+source, actual owner/spouse and mailing state. These guards preserve the
+[Publication555](https://www.irs.gov/publications/p555) community-property boundary;
+they do not infer domicile from a mailing address. MFS aggregation PDFs now
+use the aggregation owner/return join instead of the unrelated SSTB dispatcher.
+
+| Case | Businesses | QBI deduction | Regular tax | Other taxes | Total tax | Refund / owed |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| HOH direct | 3 | 9,568 | 41,245 | 1,926 | 43,171 | 16,829 refund |
+| HOH direct | 4 | 9,557 | 44,406 | 2,277 | 46,683 | 13,317 refund |
+| HOH RPE | 3 | 48,000 | 61,740 | 0 | 61,740 | 51,740 owed |
+| HOH RPE | 4 | 66,250 | 93,853 | 0 | 93,853 | 83,853 owed |
+| MFS direct | 3 | 8,590 | 45,817 | 2,601 | 48,418 | 11,582 refund |
+| MFS direct | 4 | 8,366 | 49,046 | 2,952 | 51,998 | 8,002 refund |
+| MFS RPE | 3 | 48,000 | 66,235 | 0 | 66,235 | 56,235 owed |
+| MFS RPE | 4 | 66,250 | 98,347 | 0 | 98,347 | 88,347 owed |
+| QSS direct | 3 | 10,547 | 33,201 | 1,926 | 35,127 | 24,873 refund |
+| QSS direct | 4 | 10,748 | 35,329 | 2,277 | 37,606 | 22,394 refund |
+| QSS RPE | 3 | 48,000 | 48,214 | 0 | 48,214 | 38,214 owed |
+| QSS RPE | 4 | 66,250 | 70,234 | 0 | 70,234 | 60,234 owed |
+
+Independent decimal arithmetic reconciles source profits, half-SE allocation,
+group wages/property, phase reductions, income limits, tax, zero AMT and final
+refunds/balances. The [2025 tax worksheet](https://www.irs.gov/pub/irs-pdf/i1040tt.pdf)
+supplies status-specific rates and offsets. Six direct cases exercise phase-in;
+six RPE cases retain the original issuer bytes and full limitation. Component
+checks cover197,300 rejection and197,301/247,299/247,300/247,301 boundaries.
+
+All12 typed packet tests and all12 full2025v5.4 return XSD checks pass. Sixty-eight
+altered records reject both native and fresh-PDF export (136 attempts), and28
+invalid public-source cases reject. Related regression:30 direct/joint/RPE/SSTB
+tests,19 input-source tests and4 retained path-only adapted RPE tests pass.
+The original RPE fixture-path issue remains deferred65/66.
+
+The196 packet pages include annual and issued disclosures. All63 new distinct
+images were observed on16 contact sheets;115 pages exactly match previously
+observed images and18 are within-batch duplicates. Final rerendering introduced
+no new hashes. Full packets reopen without fields/widgets; source owner,
+aggregation members, phase fields, deductions and continuation rows reconcile.
+All four QSS first pages were also checked individually: Avery Child appears
+in the shared HOH/QSS nondependent-child field required by
+[Form1040](https://www.irs.gov/pub/irs-prior/f1040--2025.pdf).
+Existing deferred68/76 qualifications persist: MFS spouse-name duplication,
+blank names on some retained Schedules1/2 and blank required zero fields.
+
+Evidence: `.state/research/form8995a-aggregation-statuses-2026-10-12/`, including
+source/pending packets, before/after replays, XSD/test logs, independent decimal
+proof and final rendered-page mapping/visual review. The main task stays open
+for other source combinations and election histories. Source authenticity and
+IRS acceptance remain separate; no deferred item was implemented.
+
+## October 12 joint RPE ownership and phase-in checkpoint
+
+One intact S-corporation aggregation can now belong to either actual joint
+filer, with the joint income threshold and phased wage/property limitation.
+Previously the source dispatcher and export join required a Single filer above
+247,300. The recipient TIN must match exactly one current owner; missing spouse
+identity, duplicate owners and an unrelated recipient reject. The actual K-1,
+parent/companion, Schedule E income and finalized deduction still reconcile.
+
+The [2025 Form8995-A instructions](https://www.irs.gov/instructions/i8995a)
+require the complete RPE aggregation and its issued disclosure to remain intact.
+The six new synthetic cases reuse the original three-/four-business issuer
+statement bytes, recipient Alex Taxpayer and all K-1/member facts. Spouse cases
+make Alex the spouse of Sam Example; they do not rewrite a PDF's recipient TIN.
+Outside wages vary with complete employer-specific Social Security and Medicare
+withholding. The two statement attachments remain distinct and referenced.
+
+| Cases (primary and spouse each) | Members | Before-QBI income | Phase reduction | Deduction | Total tax | Payments | Balance |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Joint phased limitation | 4 | 418,500 | 896 (23.9%) | 69,104 | 69,549 | 10,000 | 59,549 |
+| Joint full limitation | 4 | 518,500 | n/a | 66,250 | 98,846 | 10,620 | 88,226 |
+| Joint nonbinding limitation | 3 | 438,500 | n/a | 48,000 | 79,414 | 10,800 | 68,614 |
+
+Independent decimal arithmetic verifies group QBI, wages, property, limitation,
+phase reduction, taxable income, regular tax, zero AMT, payments and balances.
+The [2025 tax worksheet](https://www.irs.gov/pub/irs-pdf/i1040tt.pdf) gives24%
+less14,306 for the first/third rows and32% less45,874 for the second. The latter
+two rows retain620 excess Social Security withholding; the third also retains180
+additional Medicare withholding with zero additional tax. Nonpassive issuer
+income produces no NIIT; it is not self-employment income.
+
+Six typed complete-packet tests pass, and all six XMLs pass the full2025v5.4
+return XSD. Forty-two altered records reject both native and fresh-PDF export
+(84 attempts), covering owner mismatch/ambiguity, income, final deduction,
+K-1 wages, missing members and a changed issued-PDF digest. Eighteen invalid
+public-owner cases reject. Direct-owner regression passes16/0 (including phase-in);
+the retained path-only adapted RPE gate passes4/0. Original fixture-path issues
+remain deferred65/66. Component boundaries include394,600 (guarded),
+394,601,494,599,494,600 and494,601; nonbinding limits omit Part III.
+
+The six full packets contain76 pages, represented by49 distinct rendered hashes
+observed on13 contact sheets. Annual and issued disclosures are included in this
+count, not counted again as separate PDFs. Packets reopen without fields/widgets.
+Phase fields, source names/amounts, continuation rows and annual owner identity
+reconcile. Existing68/76 qualifications repeat: the native joint header and
+printed8995-A/Schedule B retain only the primary name, and some required zeros
+remain blank, including8959 lines6/7. This is qualified visual evidence.
+
+Evidence: `.state/research/form8995a-joint-rpe-2026-10-12/`, including original
+rejection replay, final source/pending packets, XSD/test logs, independent decimal
+proof, rendered-page mapping and visual review. These synthetic issuer records
+do not establish external authenticity or IRS acceptance. Multiple issuers,
+other QBI families, lower-income simplified filings and wider election histories
+remain outside this checkpoint; the broad board task stays open. No deferred
+item was implemented.
+
+## October 12 direct-owner aggregation phase-in checkpoint
+
+Direct-owner aggregations now support the Single and MFJ phase-in bands as well
+as the previously verified full-limit band. The shared calculation applies the
+group wage/property limitation gradually; native Part III fields and printed
+lines17–26 use those same filed amounts. When the limitation does not bind,
+Part III remains omitted. Source/member ownership, reviewed half-SE allocation,
+annual disclosure and final-return reconciliation remain required.
+
+The [2025 Form8995-A Part III instructions](https://www.irs.gov/instructions/i8995a)
+apply this reduction inside the income band only when line10 is below line3.
+Tests cover the lower threshold rejection, one dollar above it, one dollar
+below the upper endpoint, the upper endpoint itself and one dollar above it
+for every case. A separate six-case property-source replay confirms that
+nonbinding limits omit native phase fields and PDF Part III values.
+The historical full-limit checkpoint below remains evidence for its original
+scope; phase-in is no longer excluded from the direct-owner route.
+
+| Filing/owner cases | Businesses | Before-QBI income | Phase-in | Reduction | QBI deduction | Total tax | Balance/refund |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Joint primary and spouse | 3 | 445,000 | 50.4% | 12,528 | 34,829 | 93,711 | 33,354 owed |
+| Joint primary and spouse | 4 | 445,000 | 50.4% | 15,246 | 40,004 | 93,103 | 33,101 owed |
+| Single | 3 | 223,446 | 52.292% | 3,249 | 8,590 | 47,743 | 12,257 refund |
+| Single | 4 | 233,312 | 72.024% | 5,446 | 8,366 | 51,323 | 8,677 refund |
+
+Independent decimal calculations verify business profits, gross-income shares
+of filed half-SE, group wage/property limits, phase-in, taxable income,
+regular tax, zero AMT, Medicare, payments and balances/refunds. Regular tax uses
+the [2025 Publication1040 computation worksheet, page14](https://www.irs.gov/pub/irs-pdf/i1040tt.pdf):
+32% less45,874 for these joint cases and32% less22,937 for the single cases.
+Joint wages are239,714/200,250; single wages180,000. Synthetic payroll retains
+regular and additional Medicare withholding, including filed additional
+withholding357/2 for the joint cases. No old payroll fixture is repaired.
+
+Six typed complete-packet tests pass (46s), plus one six-case nonbinding test.
+All six XML returns pass the local2025v5.4 full-return XSD. Thirty-six altered
+pending records reject both native preparation and fresh PDF construction:
+phase income changed in both retained parent/companion records, final QBI,
+actual business income/property, half-SE and annual acquisition events.
+Direct source/election/high-income regression passes15/0 (1m7s); retained
+path-only adapted RPE regression passes4/0 (20s). Original RPE path failures
+remain deferred65/66; the repository fixture paths are unchanged.
+
+All129 packet pages were represented by71 unique PNG hashes and observed on
+18 contact sheets. Part III shows50.4%,52.292%,72.024%; lines12/26, native
+reductions and final deductions reconcile. Three fourth-business continuations
+and all six annual statements are present. Annual statement pages are included
+in the129 total, and the six nonbinding native-only replays add no full-PDF
+count. Packets reopen without fields/widgets. Existing qualifications68/76
+remain: joint native headers retain the primary name only, single-four printed
+Schedules1/2 have blank names, and some required zero fields remain blank.
+This is qualified review, not clean parity or an accepted filing.
+
+Evidence is retained under
+`.state/research/form8995a-aggregation-phasein-2026-10-12/`: public source/pending
+replays, six packets with XSD logs, focused/nonbinding/regression logs,
+`independent-proof.json`, `review.py`, `review-mapping.json` and
+`visual-review.json`. Source authenticity, broader owner/election combinations,
+other RPE combinations, business-rule and IRS acceptance remain open. No deferred item was
+implemented and the broad main-board task remains open.
+
+## October 12 joint direct-owner aggregation and annual disclosure
+
+A joint filer can now export one qualifying positive Schedule C aggregation
+owned entirely by either spouse above the full wage/property-limit threshold.
+Previously the direct-owner source guard accepted only Single returns. The new
+route binds the actual owner across retained business records, the joint filer,
+W-2 wages and owned Schedule SE; missing SE identity or source inventory rejects.
+Annual disclosure now identifies the spouse owner when applicable. Existing
+Single and RPE routes retain their separate source requirements.
+
+The [2025 Form8995-A instructions](https://www.irs.gov/instructions/i8995a)
+place the joint phase-in band at394,600–494,600 and require annual aggregation
+disclosure. This extension applies above494,600; component tests reject494,600
+and accept494,601. Mixed owners inside one direct-owner group, phase-in,
+SSTBs, other simultaneous QBI routes, prior losses, WOTC and positive qualified
+dividends/capital gains are outside this extension and retain their guards.
+
+Four persisted synthetic returns cover primary/spouse ownership with three or
+four businesses, reviewed current-year acquisitions and fourth-row continuation.
+Each has400,000 owned wages,120,000 federal withholding and1,800 additional
+Medicare withholding. Independent decimal arithmetic reconciles gross-income
+allocation of the filed half-SE deduction, group QBI, wage/property limitation,
+regular tax, additional Medicare, payments and final balance against native XML.
+
+| Owner cases | Businesses | Half-SE | Group QBI | QBI deduction | AGI | Total tax | Balance |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Primary and spouse | 3 | 3,214 | 236,786 | 22,500 | 636,786 | 152,843 | 31,043 |
+| Primary and spouse | 4 | 3,750 | 276,250 | 25,000 | 676,250 | 167,183 | 45,383 |
+
+Three-business half-SE shares are1,353/1,015/846; four-business shares are
+1,364/1,023/852/511. These explicitly reviewed fixtures do not repair the
+separate ordinary-route allocation finding157. Regular tax is143,070/156,007;
+SE tax6,428/7,499 and additional Medicare3,345/3,677 complete the tax totals.
+
+Verification: four typed packet tests pass; all four complete returns validate
+against local2025v5.4 XSD. Four public mixed-owner cases and four threshold
+boundary cases reject. Altered ownership, annual identity, deductions, payroll,
+SE inventory and filer facts reject44/44 native and44/44 fresh-PDF calls.
+Existing direct aggregation regression passes11/0. The unchanged RPE test file
+has four stale fixture-path failures (existing65/66); a retained local copy with
+only imports/fixture locations adapted passes4/0. This is separate regression
+evidence, not a claim that the original RPE test file passes or was repaired.
+
+The four complete PDFs contain20/20/23/23 pages:86 represented pages and41
+unique rendered images, all observed on11 contact sheets. Annual disclosures
+are already included in those totals. Schedule C/SE owner names and TINs,
+aggregation rows, totals, disclosure and continuation are visible and unclipped.
+Reopened packets contain no remaining form fields/widgets. Existing native
+joint-name68 and blank-zero76 qualifications remain; no clean parity approval
+or deferred repair is claimed. These synthetic cases do not prove authentic
+source documents, accepted election history, business-rule acceptance or IRS
+acknowledgments; the broad main-board task remains open.
+
+Evidence: `.state/research/form8995a-joint-aggregation-2026-10-12/` retains
+before/after public replays, four source/XML/PDF/attachment packets and XSD logs,
+`tests.log`, `regression.log`, `regression-replay.log`,
+`rpe-adapted-regression.log`, `independent-proof.json`, `review.py`,
+`review-mapping.json` and `visual-review.json`. All86 page hashes map to the41
+observed images; no earlier visual review is borrowed.
+
 ## October 12 qualified dividends with joint loss-employer credits
 
 Current-loss WOTC returns now accept positive qualified dividends when each
@@ -695,8 +1730,8 @@ with the16 companion passes, this checkpoint has103 related typed passes.
 The new cases reject ten public-source mutations and29 native plus29 fresh-PDF
 mutations, including empty joint-owner inventories. All five final PDFs,
 projections and tax-audit records exactly match the reviewed artifacts; XML
-matches after excluding only ReturnTs. The separate final-tax audit remains
-four passes/one deferred156 failure. The historical four deferred65 RPE fixture
+matches after excluding only ReturnTs. The separate final-tax audit passes all
+five cases. The historical four deferred65 RPE fixture
 path failures are not reclassified or repaired by these passing batches.
 
 Evidence is retained in `.state/research/form8995a-loss-owners-2026-10-12/`,

@@ -1,3 +1,4 @@
+import { assertSstbServiceClassification } from "../../../../../inputs/income/business/schedule_c/sstb-classification.ts";
 import { passiveSCorpLossBundleSchema } from "../../../../../inputs/income/rental-passthrough/k1_s_corp_passive_loss_source.ts";
 import { passiveSCorpLossQbiLines } from "./passive-s-corp-loss.ts";
 import { ownedSepSourceSchema } from "../../../../../inputs/adjustments/retirement/sep_retirement/owned-source.ts";
@@ -5,7 +6,10 @@ import {
   reviewedRpeAggregation,
   rpeAggregationSourceSchema,
 } from "../../../../../inputs/deductions/business/k1_rpe_aggregation_source.ts";
-import { independentReviewsSchema } from "../../../../../inputs/deductions/business/qbi_patron/schema.ts";
+import {
+  assertPatronFilingStatus,
+  independentReviewsSchema,
+} from "../../../../../inputs/deductions/business/qbi_patron/schema.ts";
 import { independentPatronSources } from "../../../../../inputs/deductions/business/qbi_patron/independent.ts";
 import {
   assertCurrentPropertyReturnOwners,
@@ -449,16 +453,19 @@ function advancedFormOutput(
 ): NodeOutput {
   if (input.rpe_aggregation_source) {
     const group = reviewedRpeAggregation(input.rpe_aggregation_source);
+    const joint = input.filing_status === FilingStatus.MFJ;
+    const owners = [input.taxpayer_ssn, ...(joint ? [input.spouse_ssn] : [])]
+      .map((ssn) => ssn?.replaceAll("-", ""));
     if (
-      input.filing_status !== FilingStatus.Single ||
-      input.taxpayer_ssn?.replaceAll("-", "") !== group.source.recipient_tin ||
-      taxableIncome <= 247300 ||
+      owners.some((ssn) => !ssn) || new Set(owners).size !== owners.length ||
+      !owners.includes(group.source.recipient_tin) ||
+      taxableIncome <= (joint ? 394600 : 197300) ||
       sumField(input.qbi) !== group.qbi ||
       sumField(input.w2_wages) !== group.wages ||
       sumField(input.unadjusted_basis) !== group.ubia ||
       sumField(input.qbi_from_schedule_c) !== 0 ||
       sumField(input.qbi_from_schedule_f) !== 0 ||
-      sumField(input.sstb_qbi) !== 0 || qbiCapitalTotal(input) !== 0 ||
+      sumField(input.sstb_qbi) !== 0 ||
       sumField(input.line6_sec199a_dividends) !== 0 ||
       sumField(input.se_tax_deduction) !== 0 ||
       sumField(input.se_health_insurance_deduction) !== 0 ||
@@ -471,13 +478,17 @@ function advancedFormOutput(
       input.owned_s_corp_loss_sources
     ) {
       throw Error(
-        "RPE aggregation needs its actual Single owner and positive current statement without other QBI/owner adjustment paths",
+        "RPE aggregation needs its actual filing owner and positive current statement without other QBI/owner adjustment paths",
       );
     }
     return output(form8995a, {
       filing_status: input.filing_status,
       taxable_income: taxableIncome,
-      net_capital_gain: 0,
+      net_capital_gain: qbiCapitalTotal(input, true),
+      qbi_capital_sources: input.qbi_capital_sources,
+      investment_interest_sources: input.investment_interest_sources,
+      investment_dividend_sources: input.investment_dividend_sources,
+      investment_dividend_totals: input.investment_dividend_totals,
       qbi: group.qbi,
       w2_wages: group.wages,
       unadjusted_basis: group.ubia,
@@ -782,17 +793,25 @@ function advancedFormOutput(
 
   if (businesses?.some((row) => row.source_schedule_c.qbi_sstb_filing_review)) {
     const review = business?.source_schedule_c.qbi_sstb_filing_review;
-    const owner = input.taxpayer_ssn?.replaceAll("-", "");
+    const spouseOwned = business?.source_schedule_c.proprietor_recipient === "S";
+    const owner = (spouseOwned ? input.spouse_ssn : input.taxpayer_ssn)?.replaceAll(
+      "-",
+      "",
+    );
     if (
       !business || businesses.length !== 1 || !review || !owner ||
       review.owner_ssn !== owner ||
       (input.filing_status !== FilingStatus.Single &&
         input.filing_status !== FilingStatus.MFJ &&
+        input.filing_status !== FilingStatus.HOH &&
+        input.filing_status !== FilingStatus.QSS &&
         input.filing_status !== FilingStatus.MFS) ||
       (input.filing_status === FilingStatus.MFS && !review.mfs_filing_review) ||
       !business.business_name ||
       !business.ein || !business.business_reference ||
-      business.source_schedule_c.proprietor_recipient !== "T" ||
+      (business.source_schedule_c.proprietor_recipient !== "T" &&
+        !(spouseOwned && input.filing_status === FilingStatus.MFJ &&
+          input.joint_se_source)) ||
       business.source_schedule_c.qbi_specified_service !== true ||
       nonSstbQbi !== 0 || sstbQbi !== business.qbi || business.qbi <= 0 ||
       business.wotc_wage_reduction !== undefined ||
@@ -801,14 +820,19 @@ function advancedFormOutput(
       sumField(input.retirement_plan_deduction) !== 0 ||
       input.qbi_no_prior_loss_or_suspended_loss_confirmed !== true ||
       input.qbi_not_patron_of_specified_cooperative_confirmed !== true ||
-      qbiCapitalTotal(input) !== 0 ||
+      !Number.isSafeInteger(qbiCapitalTotal(input, true)) ||
+      review.qualified_dividends_zero_confirmed !==
+        ((input.investment_dividend_totals?.qualified ?? 0) === 0) ||
       sumField(input.line6_sec199a_dividends) !== 0 ||
       (input.qbi_loss_carryforward ?? 0) !== 0 ||
       (input.reit_loss_carryforward ?? 0) !== 0
     ) {
       throw new Error(
-        "SSTB Schedule C needs one identified taxpayer accounting business with only its filed half-SE adjustment",
+        "SSTB Schedule C needs one identified taxpayer service business with only its filed half-SE adjustment",
       );
+    }
+    if (review.service_classification_review) {
+      assertSstbServiceClassification(business.source_schedule_c);
     }
     const qbi = business.qbi - sumField(input.se_tax_deduction);
     sourcedBusiness = {
@@ -830,7 +854,8 @@ function advancedFormOutput(
         one_non_ptp_sstb_confirmed: true,
         no_other_business_or_aggregation_confirmed: true,
         no_reit_ptp_or_loss_carryforward_confirmed: true,
-        qualified_dividends_zero_confirmed: true,
+        qualified_dividends_zero_confirmed:
+          review.qualified_dividends_zero_confirmed,
         qbi_wages_ubia_source_reference: review.review_reference,
         taxable_income_before_qbi_confirmed: true,
       },
@@ -892,18 +917,16 @@ function advancedFormOutput(
   }
   if (input.patron_source_review) {
     const review = input.patron_source_review;
+    assertPatronFilingStatus(review, input.filing_status);
     const rows = review.business.kind === "schedule_c"
       ? input.schedule_c_qbi_businesses
       : input.schedule_f_qbi_businesses;
     const row = rows?.[0];
     if (
       !row || rows?.length !== 1 ||
-      (input.filing_status !== FilingStatus.Single &&
-        input.filing_status !== FilingStatus.MFJ) ||
       input.qbi_no_prior_loss_or_suspended_loss_confirmed !== true ||
       input.qbi_not_patron_of_specified_cooperative_confirmed === true ||
       sumField(input.qbi) !== 0 || sstbQbi !== 0 ||
-      qbiCapitalTotal(input) !== 0 ||
       sumField(input.line6_sec199a_dividends) !== 0 ||
       (input.qbi_loss_carryforward ?? 0) !== 0 ||
       (input.reit_loss_carryforward ?? 0) !== 0 ||
@@ -912,7 +935,7 @@ function advancedFormOutput(
         : sumField(input.qbi_from_schedule_c) !== 0)
     ) {
       throw new Error(
-        "Patron public source needs one single-filer business, no other QBI activity and an explicit loss review",
+        "Patron public source needs one reviewed owner business, no other QBI activity and an explicit loss review",
       );
     }
     const source = {
@@ -952,7 +975,8 @@ function advancedFormOutput(
         one_non_sstb_business_confirmed: true,
         no_aggregation_confirmed: true,
         no_ptp_or_loss_carryforward_confirmed: true,
-        qualified_dividends_zero_confirmed: true,
+        qualified_dividends_zero_confirmed:
+          (input.investment_dividend_totals?.qualified ?? 0) === 0,
         qbi_wages_ubia_sources_confirmed: true,
         taxable_income_before_qbi_confirmed: true,
       },
@@ -1686,10 +1710,10 @@ class Form8995Node extends TaxNode<typeof inputSchema> {
     const taxableIncome = taxableIncomeBeforeQbi(input, cfg);
     if (
       input.rpe_aggregation_source && taxableIncome !== undefined &&
-      taxableIncome <= 247300
+      taxableIncome <= qbiThreshold(input.filing_status!, cfg)
     ) {
       throw Error(
-        "RPE aggregation below the completed high-income 8995-A source route requires its own simplified/phase-in filing projection",
+        "RPE aggregation below the 8995-A threshold requires its own simplified filing projection",
       );
     }
     if (

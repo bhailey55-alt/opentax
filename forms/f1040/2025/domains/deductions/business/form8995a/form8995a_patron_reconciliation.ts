@@ -1,3 +1,8 @@
+import { additionalMedicareTax } from "../../../../../nodes/intermediate/forms/taxes/employment/form8959/index.ts";
+import {
+  assertMultiBusinessInvestmentSources,
+  assertMultiBusinessInvestmentTax,
+} from "../../../../mef/forms/deductions/business/f8995/f8995-investment.ts";
 import { assertIndependentPatronReturn } from "./form8995a_independent_patron_reconciliation.ts";
 import {
   type FilerIdentity,
@@ -12,7 +17,10 @@ import {
   patronSourceAmounts,
   sourceSchema,
 } from "../../../../../nodes/inputs/deductions/business/qbi_patron/calculation.ts";
-import { inputSchema as reviewSchema } from "../../../../../nodes/inputs/deductions/business/qbi_patron/schema.ts";
+import {
+  inputSchema as reviewSchema,
+  patronW2Sources,
+} from "../../../../../nodes/inputs/deductions/business/qbi_patron/schema.ts";
 import { inputSchema as cSchema } from "../../../../../nodes/inputs/income/business/schedule_c/model.ts";
 import { inputSchema as fSchema } from "../../../../../nodes/intermediate/forms/income/business/schedule_f/index.ts";
 import { inputSchema as seSchema } from "../../../../../nodes/intermediate/forms/taxes/self-employment/schedule_se/index.ts";
@@ -23,7 +31,6 @@ import {
 } from "../../../../../nodes/intermediate/forms/adjustments/health/form7206/index.ts";
 import { singleScheduleCPlanSchema } from "../../../../../nodes/intermediate/forms/adjustments/health/form7206/index.ts";
 import { CONFIG_BY_YEAR } from "../../../../../nodes/config/index.ts";
-import { ordinaryTax2025 } from "../../../../../nodes/intermediate/worksheets/taxes/calculation/tax_table_2025.ts";
 import { normalizeAllPending } from "../../../../return-processing/pending.ts";
 
 /** Replay public patron review, owned business, deductions and final tax joins. */
@@ -31,7 +38,10 @@ export function assertForm8995APatronReturn(
   input: Form8995AInput,
   raw: Readonly<Record<string, unknown>> | undefined,
 ): void {
-  if (input.independent_patron_sources) { assertIndependentPatronReturn(input, raw); return; }
+  if (input.independent_patron_sources) {
+    assertIndependentPatronReturn(input, raw);
+    return;
+  }
   if (!input.patron_business_source) return;
   if (!raw) throw new Error("Patron filing needs its complete source return");
   const pending = normalizeAllPending(raw as Record<string, unknown>);
@@ -58,6 +68,23 @@ export function assertForm8995APatronReturn(
     );
   }
   const joint = input.filing_status === "mfj";
+  if (input.filing_status === "mfs") {
+    const mfs = review.mfs_filing_review;
+    if (
+      !mfs || pending.general?.address_state !== mfs.mailing_address_state ||
+      String(pending.general?.spouse_ssn ?? "").replaceAll("-", "") !==
+        mfs.spouse_ssn ||
+      String(pending.f1040?.spouse_ssn ?? "").replaceAll("-", "") !==
+        mfs.spouse_ssn ||
+      pending.general?.mfs_spouse_itemizing !== false ||
+      pending.f1040?.mfs_spouse_itemizing !== false ||
+      pending.f1040?.filing_status !== input.filing_status
+    ) {
+      throw new Error(
+        "MFS patron needs the retained noncommunity property, actual spouse and deduction review to match the return",
+      );
+    }
+  }
   const primary = String(pending.general?.taxpayer_ssn ?? "").replaceAll(
     "-",
     "",
@@ -68,12 +95,14 @@ export function assertForm8995APatronReturn(
       .proprietor_recipient;
   const spouseOwned = recipient === "S";
   const owner = spouseOwned ? spouse : primary;
-  const wageOwner = spouseOwned ? primary : spouse;
-  const reviewedWages = spouseOwned
-    ? review.primary_w2_sources
-    : review.spouse_w2_sources;
-  const copies = reviewedWages
-    ? w2Schema.parse({ w2s: reviewedWages }).w2s
+  const primaryCopies = review.primary_w2_sources
+    ? w2Schema.parse({ w2s: review.primary_w2_sources }).w2s
+    : [];
+  const spouseCopies = review.spouse_w2_sources
+    ? w2Schema.parse({ w2s: review.spouse_w2_sources }).w2s
+    : [];
+  const copies = patronW2Sources(review).length
+    ? w2Schema.parse({ w2s: patronW2Sources(review) }).w2s
     : [];
   const w2Input = pending.w2 ? w2Schema.parse(pending.w2) : undefined;
   const w2s = w2Input?.w2s ?? [];
@@ -81,20 +110,22 @@ export function assertForm8995APatronReturn(
     pending.general?.filing_status !== input.filing_status ||
     owner !== review.source_1099patr.recipient_tin ||
     (spouseOwned && !joint) ||
-    (spouseOwned
-      ? review.spouse_w2_sources !== undefined
-      : review.primary_w2_sources !== undefined) ||
+    (!joint && spouseCopies.length > 0) ||
+    primaryCopies.some((row) =>
+      row.employee_ssn?.replaceAll("-", "") !== primary
+    ) ||
+    spouseCopies.some((row) =>
+      row.employee_ssn?.replaceAll("-", "") !== spouse
+    ) ||
     String(pending.f1040?.taxpayer_ssn ?? "").replaceAll("-", "") !== primary ||
     (joint && (!/^\d{9}$/.test(spouse) || spouse === primary ||
       String(pending.f1040?.spouse_ssn ?? "").replaceAll("-", "") !==
         spouse)) ||
     JSON.stringify(w2s) !== JSON.stringify(copies) ||
     (copies.length > 0 &&
-      (!joint ||
-        JSON.stringify(w2Input?.patron_filing_review) !==
-          JSON.stringify(review))) ||
+      JSON.stringify(w2Input?.patron_filing_review) !==
+        JSON.stringify(review)) ||
     copies.some((row) =>
-      row.employee_ssn?.replaceAll("-", "") !== wageOwner ||
       !row.source_document_reference || !row.employer_name ||
       !/^\d{9}$/.test((row.employer_ein ?? "").replaceAll("-", "")) ||
       !(row.box5_medicare_wages! > 0) ||
@@ -104,9 +135,11 @@ export function assertForm8995APatronReturn(
     )
   ) {
     throw new Error(
-      "Patron proprietor and reviewed nonproprietor W-2 issued copies must match the joint source return",
+      "Patron proprietor and reviewed primary/spouse W-2 issued copies must match the source return",
     );
   }
+  const ownerSocialSecurityWages = (spouseOwned ? spouseCopies : primaryCopies)
+    .reduce((sum, row) => sum + (row.box3_ss_wages ?? 0), 0);
   const wageIncome = copies.reduce((sum, row) => sum + row.box1_wages, 0);
   const medicareWages = Math.round(
     copies.reduce((sum, row) => sum + (row.box5_medicare_wages ?? 0), 0),
@@ -159,26 +192,94 @@ export function assertForm8995APatronReturn(
     );
   }
   const lines = calculateOneBusiness8995ALines(input);
-  const medicareThreshold = joint ? 250000 : 200000;
+  const medicareThreshold = joint
+    ? 250000
+    : input.filing_status === "mfs"
+    ? 125000
+    : 200000;
   const medicareTax =
-    Math.round(Math.max(0, medicareWages - medicareThreshold) * .009) +
-    Math.round(
+    additionalMedicareTax(Math.max(0, medicareWages - medicareThreshold)) +
+    additionalMedicareTax(
       Math.max(
         0,
         Math.round(seLines?.line6 ?? 0) -
           Math.max(0, medicareThreshold - medicareWages),
-      ) * .009,
+      ),
     );
-  const expectedAgi = Math.round(
-    amounts.profit + wageIncome - source.se_tax_deduction - health,
+  const investment = assertMultiBusinessInvestmentSources(
+    { ...input, taxpayer_ssn: primary },
+    pending,
+    true,
+    joint ? spouse : undefined,
   );
+  assertMultiBusinessInvestmentTax(pending, investment, input.filing_status);
+  const investmentIncome = investment.interest + investment.ordinary +
+    investment.returnCapital;
+  const expectedAgi = Math.round(
+    amounts.profit + wageIncome + investmentIncome - source.se_tax_deduction -
+      health,
+  );
+  const niitThreshold = joint || input.filing_status === "qss"
+    ? 250000
+    : input.filing_status === "mfs"
+    ? 125000
+    : 200000;
+  const niit = Math.round(
+    Math.min(investmentIncome, Math.max(0, expectedAgi - niitThreshold)) * .038,
+  );
+  if (investmentIncome !== 0) {
+    const expectedNiit = {
+      line1_taxable_interest: investment.interest,
+      line2_ordinary_dividends: investment.ordinary,
+      line3_annuities: 0,
+      line4a_passive_income: 0,
+      line4b_rental_net: 0,
+      line5a_net_gain: investment.returnCapital,
+      line5b_net_gain_adjustment: 0,
+      line7_other_modifications: 0,
+      line8_total_investment_income: investmentIncome,
+      line9a_investment_interest_expense: 0,
+      line9b_state_local_tax: 0,
+      line10_additional_modifications: 0,
+      line11_total_deductions: 0,
+      line12_net_investment_income: investmentIncome,
+      line13_magi: expectedAgi,
+      line14_threshold: niitThreshold,
+      line15_magi_excess: Math.max(0, expectedAgi - niitThreshold),
+      line16_taxable_base: Math.min(
+        investmentIncome,
+        Math.max(0, expectedAgi - niitThreshold),
+      ),
+    };
+    if (
+      Object.entries(expectedNiit).some(([key, value]) =>
+        Math.round(Number(pending.form8960?.[key] ?? 0)) !== Math.round(value)
+      )
+    ) {
+      throw new Error(
+        "Patron NIIT source lines must match the owned investment copies and income",
+      );
+    }
+  }
+  if (
+    (input.net_capital_gain ?? 0) !== investment.filedQbiCapitalLimit ||
+    input.business_filing_details?.qualified_dividends_zero_confirmed !==
+      (investment.qualified === 0) ||
+    Math.round(Number(pending.form8960?.line17_niit ?? 0)) !== niit ||
+    (pending.schedule2?.line12_niit ?? 0) !== niit
+  ) {
+    throw new Error(
+      "Patron investment sources, capital limit and NIIT must reconcile to the return",
+    );
+  }
   if (
     !seLines ||
     se[isC ? "net_profit_schedule_c" : "net_profit_schedule_f"] !==
       amounts.profit ||
     !noAmount(se[isC ? "net_profit_schedule_f" : "net_profit_schedule_c"]) ||
     se.farm_optional_method_elected === true ||
-    !noAmount(se.w2_ss_wages) || !noAmount(se.unreported_tips_4137) ||
+    (se.w2_ss_wages ?? 0) !== ownerSocialSecurityWages ||
+    !noAmount(se.unreported_tips_4137) ||
     !noAmount(se.wages_8919) ||
     seLines.line13 !== source.se_tax_deduction ||
     health !== source.health_insurance_deduction ||
@@ -190,7 +291,7 @@ export function assertForm8995APatronReturn(
     pending.schedule2?.line4_se_tax !== seLines.line12 ||
     f1040?.line8_additional_income !== amounts.profit ||
     Math.round(Number(f1040?.line9_total_income)) !==
-      Math.round(amounts.profit + wageIncome) ||
+      Math.round(amounts.profit + wageIncome + investmentIncome) ||
     Math.round(Number(f1040?.line1a_wages ?? 0)) !== Math.round(wageIncome) ||
     Math.round(Number(f1040?.line1z_total_wages ?? 0)) !==
       Math.round(wageIncome) ||
@@ -202,14 +303,9 @@ export function assertForm8995APatronReturn(
     f1040?.line13_qbi_deduction !== lines.line39 ||
     Math.round(Number(f1040?.line15_taxable_income)) !==
       Math.max(0, input.taxable_income - lines.line39) ||
-    f1040?.line16_income_tax !==
-      ordinaryTax2025(
-        Number(f1040?.line15_taxable_income),
-        input.filing_status,
-      ) ||
     (pending.form8959?.line18_total_tax ?? 0) !== medicareTax ||
     (pending.schedule2?.line11_additional_medicare ?? 0) !== medicareTax ||
-    f1040?.line23_other_taxes !== (seLines?.line12 ?? 0) + medicareTax ||
+    f1040?.line23_other_taxes !== (seLines?.line12 ?? 0) + medicareTax + niit ||
     f1040?.line24_total_tax !==
       Number(f1040?.line22_tax_after_credits) +
         Number(f1040?.line23_other_taxes) ||
@@ -223,10 +319,7 @@ export function assertForm8995APatronReturn(
       "schedule_e",
       "k1_partnership",
       "k1_s_corp",
-      "f1099div",
-      "f1099int",
       "f1099b",
-      "schedule_d",
       "f5884",
       "form8829",
     ].some((key) => pending[key] !== undefined)
@@ -242,6 +335,21 @@ export function patronProprietorSsn(
   input: Form8995AInput,
   filer: FilerIdentity | undefined,
 ): string | undefined {
+  if (input.patron_business_source && input.filing_status === "mfs") {
+    const review = sourceSchema.parse(input.patron_business_source).review;
+    const mfs = review.mfs_filing_review;
+    if (
+      !mfs || filer?.filingStatus !== MefFilingStatus.MarriedFilingSeparately ||
+      filer.primarySSN.replaceAll("-", "") !==
+        review.source_1099patr.recipient_tin ||
+      filer.spouse?.ssn.replaceAll("-", "") !== mfs.spouse_ssn ||
+      filer.address.state !== mfs.mailing_address_state
+    ) {
+      throw new Error(
+        "MFS patron owner, spouse and mailing state must match the final filer and separate-income review",
+      );
+    }
+  }
   const recipient = input.patron_business_source
     ? (sourceSchema.parse(input.patron_business_source).business_source as {
       proprietor_recipient?: string;

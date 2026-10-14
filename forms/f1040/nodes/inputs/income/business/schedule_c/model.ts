@@ -1,3 +1,4 @@
+import { sstbServiceClassificationSchema } from "./sstb-classification.ts";
 import {
   calculateCharitableNaturalResource,
   charitableNaturalResourceSourceSchema,
@@ -156,7 +157,8 @@ export const itemSchema = z.object({
     owner_ssn: z.string().regex(/^\d{9}$/),
     classification_source_reference: z.string().trim().min(1),
     business_activity_description: z.string().trim().min(1),
-    accounting_sstb_confirmed: z.literal(true),
+    accounting_sstb_confirmed: z.literal(true).optional(),
+    service_classification_review: sstbServiceClassificationSchema.optional(),
     employee_w2_records: z.array(
       z.object({
         employee_ssn: z.string().regex(/^\d{9}$/),
@@ -176,7 +178,8 @@ export const itemSchema = z.object({
     all_business_payroll_included_confirmed: z.literal(true),
     no_other_business_or_aggregation_confirmed: z.literal(true),
     no_ptp_or_loss_carryforward_confirmed: z.literal(true),
-    qualified_dividends_zero_confirmed: z.literal(true),
+    // Reconciled to the retained investment portfolio, including positive dividends.
+    qualified_dividends_zero_confirmed: z.boolean(),
     no_qualified_property_confirmed: z.literal(true),
     no_adjustments_beyond_filed_half_se_tax_confirmed: z.literal(true),
     review_reference: z.string().trim().min(1),
@@ -187,6 +190,16 @@ export const itemSchema = z.object({
         parsed.toISOString().slice(0, 10) === date && date >= "2025-12-31";
     }, "Expected a real post-year-end review date"),
   }).strict().superRefine((review, ctx) => {
+    if (
+      (review.accounting_sstb_confirmed === true) ===
+        (review.service_classification_review !== undefined)
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "Provide exactly one accounting or other service classification review",
+      });
+    }
     if (
       (review.employee_w2_records.length === 0) !==
         (review.no_business_employees_review !== undefined)

@@ -1,3 +1,4 @@
+import { mfsSstbFilingReviewSchema } from "../../../../../inputs/income/business/schedule_c/mfs-sstb-review.ts";
 import { reviewedLossWotcReductions } from "./loss-wotc.ts";
 import { lossSeSourceSchema, reviewedLossSeAllocations } from "./loss-se.ts";
 import {
@@ -24,7 +25,10 @@ import {
   ownedScheduleSE,
   ownerSourcesSchema,
 } from "../../../taxes/self-employment/schedule_se/owner-calculation.ts";
-import { sourceSchema as patronBusinessSourceSchema } from "../../../../../inputs/deductions/business/qbi_patron/schema.ts";
+import {
+  assertPatronFilingStatus,
+  sourceSchema as patronBusinessSourceSchema,
+} from "../../../../../inputs/deductions/business/qbi_patron/schema.ts";
 import { patronSourceAmounts } from "../../../../../inputs/deductions/business/qbi_patron/calculation.ts";
 import {
   qbiCapitalSourcesSchema,
@@ -78,7 +82,7 @@ const aggregationGroupSchema = z.object({
   combined_for_limitation: z.boolean(),
 });
 
-// Evidence for the bounded two-business Schedule B route. This augments the
+// Evidence for the direct-owner Schedule B route. This augments the
 // BAN election with member-level source and reviewed allocation records.
 const aggregationMemberSchema = z.object({
   business_reference: z.string().trim().min(1),
@@ -131,6 +135,10 @@ const aggregationAnnualDisclosureSchema = z.object({
       ),
     }).strict(),
   ).min(2),
+}).strict();
+
+export const aggregationMfsReviewSchema = mfsSstbFilingReviewSchema.extend({
+  owner_ssn: z.string().regex(/^\d{9}$/),
 }).strict();
 
 export const aggregationFilingDetailsSchema = z.object({
@@ -191,7 +199,7 @@ export const sstbFilingDetailsSchema = z.object({
   one_non_ptp_sstb_confirmed: z.literal(true),
   no_other_business_or_aggregation_confirmed: z.literal(true),
   no_reit_ptp_or_loss_carryforward_confirmed: z.literal(true),
-  qualified_dividends_zero_confirmed: z.literal(true),
+  qualified_dividends_zero_confirmed: z.boolean(),
   qbi_wages_ubia_source_reference: z.string().trim().min(1),
   taxable_income_before_qbi_confirmed: z.literal(true),
   mfs_owner_ssn: z.string().regex(/^\d{9}$/).optional(),
@@ -293,6 +301,7 @@ export const inputSchema = z.object({
   // treatment applied. Omit when no aggregation election has been made.
   aggregation_groups: z.array(aggregationGroupSchema).optional(),
   aggregation_filing_details: aggregationFilingDetailsSchema.optional(),
+  aggregation_mfs_review: aggregationMfsReviewSchema.optional(),
   rpe_aggregation_source: rpeAggregationSourceSchema.optional(),
 
   // An affirmative status requires Schedule D's payment and wage allocation.
@@ -438,14 +447,17 @@ export function validateTwoBusinessAggregationSource(input: Form8995AInput) {
   const groups = input.aggregation_groups;
   const group = groups?.[0];
   const cfg = CONFIG_BY_YEAR[2025];
+  const joint = input.filing_status === FilingStatus.MFJ;
+  const owner = source?.members[0]?.source_schedule_c.proprietor_recipient;
+  const threshold = joint ? cfg.qbiThresholdMfj : cfg.qbiThresholdSingle;
   if (
     !source || !group || groups?.length !== 1 ||
     group.group_name !== source.group_name ||
     group.combined_for_limitation !== true ||
-    input.filing_status !== FilingStatus.Single ||
+    (owner !== TS.T && !(joint && owner === TS.S)) ||
     !Number.isInteger(input.taxable_income) ||
-    input.taxable_income <= cfg.qbiThresholdSingle + cfg.qbiPhaseInRange / 2 ||
-    input.net_capital_gain !== 0 ||
+    input.taxable_income <= threshold ||
+    !Number.isSafeInteger(input.net_capital_gain) ||
     input.qbi_no_prior_loss_or_suspended_loss_confirmed !== true ||
     input.business_filing_details || input.sstb_filing_details ||
     input.schedule_c_qbi_businesses || input.patron_filing_details ||
@@ -512,7 +524,7 @@ export function validateTwoBusinessAggregationSource(input: Form8995AInput) {
       scheduleC.business_reference !== member.business_reference ||
       scheduleC.line_c_business_name !== member.business_name ||
       scheduleC.line_d_ein !== member.ein ||
-      scheduleC.proprietor_recipient !== TS.T ||
+      scheduleC.proprietor_recipient !== owner ||
       scheduleC.line_g_material_participation !== true ||
       scheduleC.line_32_at_risk !== "a" ||
       scheduleC.at_risk_simplified !== undefined ||
@@ -630,14 +642,28 @@ export function validateTwoBusinessAggregationSource(input: Form8995AInput) {
 }
 
 export function calculateTwoBusinessAggregationLines(input: Form8995AInput) {
+  const mfs = input.filing_status === FilingStatus.MFS;
+  const owner = input.aggregation_filing_details?.common_owner_ssn ??
+    input.rpe_aggregation_source?.recipient_tin;
+  const review = input.aggregation_mfs_review;
+  if (
+    mfs
+      ? !review || review.owner_ssn !== owner || review.spouse_ssn === owner
+      : review !== undefined
+  ) {
+    throw Error(
+      "Aggregation needs a consistent separate-owner property and spouse deduction review for MFS only",
+    );
+  }
   if (input.rpe_aggregation_source) {
     const totals = reviewedRpeAggregation(input.rpe_aggregation_source),
       issued = totals.source;
     const group = input.aggregation_groups?.[0];
     if (
-      input.filing_status !== FilingStatus.Single ||
-      input.taxable_income <= 247300 ||
-      !Number.isInteger(input.taxable_income) || input.net_capital_gain !== 0 ||
+      input.taxable_income <=
+        (input.filing_status === FilingStatus.MFJ ? 394600 : 197300) ||
+      !Number.isInteger(input.taxable_income) ||
+      !Number.isSafeInteger(input.net_capital_gain) ||
       input.aggregation_groups?.length !== 1 || !group ||
       group.group_name !== issued.group_name ||
       group.combined_for_limitation !== true ||
@@ -707,7 +733,11 @@ export function calculateTwoBusinessAggregationLines(input: Form8995AInput) {
       })),
     };
     const parent = calculateOneBusiness8995ALines(input);
-    if (!Object.values(parent).every(Number.isInteger) || parent.line39 <= 0) {
+    if (
+      !Object.entries(parent).filter(([key, value]) =>
+        /^line\d+$/.test(key) && value !== undefined
+      ).every(([, value]) => Number.isInteger(value)) || parent.line39 <= 0
+    ) {
       throw Error(
         "RPE aggregation needs its finalized positive whole-dollar grouped deduction",
       );
@@ -734,7 +764,11 @@ export function calculateTwoBusinessAggregationLines(input: Form8995AInput) {
   // the Schedule 1 totals in the native/PDF join.
   const totals = validateTwoBusinessAggregationSource(input);
   const parent = calculateOneBusiness8995ALines(input);
-  if (!Object.values(parent).every(Number.isInteger) || parent.line39 <= 0) {
+  if (
+    !Object.entries(parent).filter(([key, value]) =>
+      /^line\d+$/.test(key) && value !== undefined
+    ).every(([, value]) => Number.isInteger(value)) || parent.line39 <= 0
+  ) {
     throw new Error(
       "Form 8995-A Schedule B needs a positive whole-dollar grouped deduction",
     );
@@ -1167,7 +1201,9 @@ export function calculateOneSstb8995ALines(input: Form8995AInput) {
       input.filing_status !== FilingStatus.QSS && !joint && !separate) ||
     !Number.isInteger(input.taxable_income) ||
     input.taxable_income <= threshold ||
-    input.taxable_income >= threshold + phaseInRange
+    (input.taxable_income > threshold + phaseInRange ||
+      (input.taxable_income === threshold + phaseInRange &&
+        !input.single_sstb_schedule_c_source))
   ) {
     throw new Error(
       "Form 8995-A Schedule A needs one identified single, head-of-household, surviving-spouse, separate, or joint-filer SSTB within the phase-in range",
@@ -1187,7 +1223,9 @@ export function calculateOneSstb8995ALines(input: Form8995AInput) {
     input.sstb_qbi !== source.business_qbi ||
     input.sstb_w2_wages !== source.business_w2_wages ||
     input.sstb_unadjusted_basis !== source.business_ubia ||
-    (input.net_capital_gain ?? 0) !== 0 ||
+    (!input.single_sstb_schedule_c_source &&
+      (qbiCapitalTotal(input) !== 0 ||
+        source.qualified_dividends_zero_confirmed !== true)) ||
     (input.line6_sec199a_dividends ?? 0) !== 0 ||
     (input.qbi_loss_carryforward ?? 0) !== 0 ||
     (input.reit_loss_carryforward ?? 0) !== 0 ||
@@ -1196,7 +1234,7 @@ export function calculateOneSstb8995ALines(input: Form8995AInput) {
     input.patron_filing_details
   ) {
     throw new Error(
-      "Form 8995-A Schedule A source must be the only business, with no aggregation, patron, gain, REIT/PTP, or loss path",
+      "Form 8995-A Schedule A source must be the only business, with no aggregation, patron, unsourced gain, REIT/PTP, or loss path",
     );
   }
   const phaseIn = (input.taxable_income - threshold) / phaseInRange;
@@ -1204,8 +1242,12 @@ export function calculateOneSstb8995ALines(input: Form8995AInput) {
   const filed = (value: number) =>
     input.single_sstb_schedule_c_source ? Math.round(value) : value;
   const line2 = filed(source.business_qbi * applicable);
-  const line4 = filed(source.business_w2_wages * applicable);
-  const line7 = filed(source.business_ubia * applicable);
+  const applicableWages = filed(source.business_w2_wages * applicable);
+  const applicableUbia = filed(source.business_ubia * applicable);
+  // Parent lines 4/7 are zero when rounded QBI is zero; Schedule A keeps
+  // its own applicable amounts before this parent-level restriction.
+  const line4 = line2 === 0 ? 0 : applicableWages;
+  const line7 = line2 === 0 ? 0 : applicableUbia;
   const line3 = filed(line2 * QBI_RATE);
   const line5 = filed(line4 * W2_LIMIT_A_RATE);
   const line6 = filed(line4 * W2_LIMIT_B_WAGE_RATE);
@@ -1218,7 +1260,9 @@ export function calculateOneSstb8995ALines(input: Form8995AInput) {
   const line26 = line3 - line25;
   const line13 = Math.max(line11, line26);
   const line33 = input.taxable_income;
-  const line36 = filed(line33 * QBI_RATE);
+  const line34 = qbiCapitalTotal(input, true);
+  const line35 = Math.max(0, line33 - line34);
+  const line36 = filed(line35 * QBI_RATE);
   const line39 = Math.min(line13, line36);
   const amounts = [
     line2,
@@ -1235,12 +1279,17 @@ export function calculateOneSstb8995ALines(input: Form8995AInput) {
     line25,
     line26,
     line13,
+    line34,
+    line35,
     line36,
     line39,
   ];
-  if (!amounts.every(Number.isInteger) || line39 <= 0) {
+  if (
+    !amounts.every(Number.isInteger) || line39 < 0 ||
+    (line39 === 0 && !input.single_sstb_schedule_c_source)
+  ) {
     throw new Error(
-      "Form 8995-A Schedule A needs positive whole-dollar reconciled parent amounts",
+      "Form 8995-A Schedule A needs whole-dollar reconciled parent amounts and a retained Schedule C source for a zero deduction",
     );
   }
   return {
@@ -1249,6 +1298,8 @@ export function calculateOneSstb8995ALines(input: Form8995AInput) {
     phaseInRange,
     phaseIn,
     applicable,
+    applicableWages,
+    applicableUbia,
     line2,
     line3,
     line4,
@@ -1268,7 +1319,8 @@ export function calculateOneSstb8995ALines(input: Form8995AInput) {
     line26,
     line32: line13,
     line33,
-    line35: line33,
+    line34,
+    line35,
     line36,
     line37: line39,
     line39,
@@ -1347,10 +1399,9 @@ export function calculatePatronScheduleDLines(input: Form8995AInput) {
   if (input.patron_business_source) {
     const amounts = patronSourceAmounts(input.patron_business_source);
     const review = input.patron_business_source.review;
+    assertPatronFilingStatus(review, input.filing_status);
     const details = input.business_filing_details;
     if (
-      (input.filing_status !== FilingStatus.Single &&
-        input.filing_status !== FilingStatus.MFJ) ||
       amounts.qbi !== input.qbi || amounts.wages !== input.w2_wages ||
       input.unadjusted_basis !== 0 ||
       details.business_name !== amounts.name || details.ein !== amounts.ein ||
@@ -1690,7 +1741,8 @@ export function calculateOneBusiness8995ALines(input: Form8995AInput) {
     input.patron_business_source || input.single_schedule_c_source ||
       input.single_schedule_f_source ||
       input.farm_wotc_filing_source ||
-      input.mixed_fishing_qbi_source,
+      input.mixed_fishing_qbi_source || input.aggregation_filing_details ||
+      input.rpe_aggregation_source,
   ) &&
     input.taxable_income > patronThreshold &&
     input.taxable_income <= patronThreshold + patronPhaseInRange &&
@@ -1737,7 +1789,8 @@ export function calculateOneBusiness8995ALines(input: Form8995AInput) {
     ...((input.patron_business_source || input.single_schedule_c_source ||
         input.single_schedule_f_source ||
         input.farm_wotc_filing_source ||
-        input.mixed_fishing_qbi_source)
+        input.mixed_fishing_qbi_source || input.aggregation_filing_details ||
+        input.rpe_aggregation_source)
       ? {
         patronThreshold,
         patronPhaseInRange,
@@ -1967,19 +2020,19 @@ function assertSupportedSchedulePath(input: Form8995AInput): void {
       );
     }
     if (
-      (input.filing_status !== FilingStatus.Single &&
-        !(input.patron_business_source &&
-          input.filing_status === FilingStatus.MFJ)) ||
+      (!input.patron_business_source &&
+        input.filing_status !== FilingStatus.Single) ||
       (!input.patron_business_source && input.taxable_income <= 247_300) ||
       (input.qbi ?? 0) !== details.business_qbi ||
       (input.w2_wages ?? 0) !== details.business_w2_wages ||
       (input.unadjusted_basis ?? 0) !== details.business_ubia ||
-      (input.net_capital_gain ?? 0) !== 0 ||
+      ((input.net_capital_gain ?? 0) !== 0 &&
+        (!input.patron_business_source || !input.qbi_capital_sources)) ||
       (input.line6_sec199a_dividends ?? 0) !== 0 ||
       (input.reit_loss_carryforward ?? 0) !== 0
     ) {
       throw new Error(
-        "Form 8995-A Schedule D supports one sourced single-filer business fully above phase-in with zero capital gain and REIT/PTP activity",
+        "Form 8995-A Schedule D needs one sourced owner business with sourced capital gain and zero REIT/PTP activity; unsourced projections require Single fully above phase-in",
       );
     }
     const lines = calculateOneBusiness8995ALines(input);

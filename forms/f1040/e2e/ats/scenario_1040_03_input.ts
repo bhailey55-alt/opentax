@@ -1,4 +1,4 @@
-import { FilingStatus } from "../../nodes/types.ts";
+import { FilingStatus, TS } from "../../nodes/types.ts";
 import { DistributionCode } from "../../nodes/inputs/income/retirement/f1099r/index.ts";
 import { SCENARIO_1040_03_FACTS } from "./ty2025_cases.ts";
 
@@ -75,6 +75,12 @@ export function scenario104003Input(): Record<string, unknown> {
       address_zip: facts.taxpayer.address.zip,
     },
     f1099r: [{
+      // Recipient and unmarked boxes visually verified on issued Copy B.
+      recipient_ssn: facts.taxpayer.ssn,
+      ts: TS.T,
+      box2b_not_determined: false,
+      box2b_total_dist: false,
+      box7_ira_simple_indicator: false,
       payer_name: facts.form1099R.payerName,
       payer_ein: facts.form1099R.payerEin,
       payer_address_line1: "1231 Juniper Street",
@@ -189,7 +195,7 @@ export const SCENARIO_1040_03_RECONCILIATION = {
   notAtsReadyBecause: [
     "Form 1040 marks Single and digital-assets Yes; its result lines remain blank.",
     "The cover supplies a taxable state refund of 3,110, but not the gross issued refund, payer or prior-year recovery workpaper required by the current 1099-G route.",
-    "Schedule D p. 9 aggregate 1a/8a proceeds and basis use the supported aggregate route; no individual broker transaction or issuer identity is asserted.",
+    "Schedule D p. 9 aggregate 1a/8a proceeds and basis calculate, but full export requires retained direct-sale transactions; no individual broker transaction or issuer identity is asserted.",
     "Form 4835 p. 17 marks active participation Yes. Its internal source label does not establish external activity history or QBI eligibility.",
     "The cover says the taxpayer is a specified agricultural-cooperative patron, but no patronage or cooperative-sale allocation facts are supplied for any QBI cooperative reduction.",
     "The taxpayer elects Schedule SE's farm optional method; its calculation and MeF/PDF mapping are coded, but end-to-end validation and any farm K-1 or CRP facts remain pending.",

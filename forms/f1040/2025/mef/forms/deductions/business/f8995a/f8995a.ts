@@ -93,8 +93,26 @@ export function buildStagedAggregatedIRS8995A(
       element("W2WageQlfyPropLimitationAmt", parent.line11),
       element("QBIDedBeforePatronReductionAmt", parent.line13),
       element("QBIComponentAmt", parent.line15),
+      ...(parent.phaseInRequired
+        ? [
+          element("QBI20PctLessGrtrAllcblShareAmt", parent.line19),
+          element("TotalPhaseInReductionAmt", parent.line25),
+          element("QBIAfterPhaseInReductionAmt", parent.line26),
+        ]
+        : []),
     ]),
     element("TotalQBIComponentAmt", parent.line16),
+    ...(parent.phaseInRequired
+      ? [
+        element("FilingStatusThresholdCd", parent.patronThreshold),
+        element(
+          "TXIBfrQBIDedLessThresholdAmt",
+          parent.line33 - parent.patronThreshold!,
+        ),
+        element("FilingStatusPhaseInRangeCd", parent.patronPhaseInRange),
+        element("PhaseInPct", parent.phaseIn!.toFixed(5)),
+      ]
+      : []),
     element("QlfyREITDivPTPIncomeLossAmt", 0),
     element("PYQlfyREITDivPTPLossCfwdAmt", 0),
     element("TotQlfyREITDivPTPIncomeAmt", 0),
@@ -121,7 +139,8 @@ export function validateOneBusiness(fields: Form8995AInput) {
   }
   if (
     (fields.filing_status !== NodeFilingStatus.Single &&
-      !((fields.patron_business_source || fields.single_schedule_c_source) &&
+      !fields.patron_business_source &&
+      !(fields.single_schedule_c_source &&
         fields.filing_status === NodeFilingStatus.MFJ)) ||
     !fields.patron_business_source && !fields.single_schedule_c_source &&
       !fields.single_schedule_f_source &&
@@ -140,7 +159,8 @@ export function validateOneBusiness(fields: Form8995AInput) {
     (fields.qbi_loss_carryforward ?? 0) !== 0 ||
     (fields.reit_loss_carryforward ?? 0) !== 0 ||
     (fields.aggregation_groups ?? []).length !== 0 ||
-    (!fields.single_schedule_f_source && fields.net_capital_gain !== 0)
+    (!fields.single_schedule_f_source && !fields.patron_business_source &&
+      fields.net_capital_gain !== 0)
   ) {
     throw new Error(
       "Form 8995-A MeF does not yet support SSTB, aggregation, loss, or capital-gain paths",
@@ -181,7 +201,7 @@ export function validateOneBusiness(fields: Form8995AInput) {
     );
   }
   if (
-    !fields.single_schedule_f_source &&
+    !fields.single_schedule_f_source && !fields.patron_business_source &&
     details.qualified_dividends_zero_confirmed !== true
   ) {
     throw new Error(
@@ -574,6 +594,7 @@ function reconcileReturn(
       !(fields.schedule_c_qbi_businesses?.some((business) =>
         business.qbi < 0
       )) &&
+      !fields.patron_business_source &&
       !(fields.filing_status === NodeFilingStatus.MFJ &&
         (fields.independent_patron_sources || fields.patron_business_source ||
           fields.single_schedule_c_source ||
@@ -608,6 +629,9 @@ function reconcileReturn(
   }
   if (fields.sstb_filing_details) {
     assertMfsSstbOwner(fields, context.filer.primarySSN);
+  }
+  if (fields.patron_business_source) {
+    patronProprietorSsn(fields, context.filer);
   }
   if (
     (fields.patron_filing_details?.source_1099patr
@@ -886,7 +910,7 @@ function buildIRS8995A(rawFields: unknown, context?: MefBuildContext): string {
       element("REITPTPComponentAmt", 0),
       element("QBIDedBfrIncomeLimitationAmt", lines.line32),
       element("TaxableIncomeBeforeQBIDedAmt", lines.line33),
-      element("NetCapitalGainAmt", 0),
+      element("NetCapitalGainAmt", lines.line34),
       element("AdjustedTaxableIncomeAmt", lines.line35),
       element("IncomeLimitationAmt", lines.line36),
       element("QBIDedBeforeDPADSect199AgAmt", lines.line37),
