@@ -1,3 +1,4 @@
+import { test } from "bun:test";
 import {
   assertEquals,
   assertRejects,
@@ -24,8 +25,7 @@ for (
     ["two-losses", -200000, -200000, -87000, 87000, "Form 1040 line 8 differs"],
   ] as const
 ) {
-  Deno.test(`Form 461 signed C/F ${id} verifies form amounts and retains full-return rejection`, async () => {
-    // deno-lint-ignore no-explicit-any -- mutable heterogeneous public-return fixture
+  test(`Form 461 signed C/F ${id} verifies form amounts and retains full-return rejection`, async () => {
     const input: any = structuredClone(base.inputs);
     Object.assign(input.general, {
       qbi_no_prior_loss_or_suspended_loss_confirmed: true,

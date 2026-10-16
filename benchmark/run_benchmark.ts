@@ -1,10 +1,14 @@
-#!/usr/bin/env -S deno run --allow-read --allow-write --allow-run
+#!/usr/bin/env bun
+import { writeSync } from "node:fs";
+import * as fs from "node:fs/promises";
+import * as sys from "../scripts/support/sys.ts";
 /**
  * run_benchmark.ts — Run all cases through the tax engine and compare to correct values.
- * Run: deno run --allow-read --allow-write --allow-run benchmark/run_benchmark.ts
+ * Run: bun benchmark/run_benchmark.ts
  */
 
-import { dirname, fromFileUrl, join } from "@std/path";
+import { dirname, join } from "node:path";
+import { fileURLToPath as fromFileUrl } from "node:url";
 import {
   benchmarkExpectedSchema,
   benchmarkInputSchema,
@@ -18,7 +22,7 @@ const SCRIPT_DIR = dirname(fromFileUrl(import.meta.url));
 const TAX_DIR = join(SCRIPT_DIR, "..");
 
 // ── CLI flags ─────────────────────────────────────────────────────────────────
-const args = Deno.args;
+const args = process.argv.slice(2);
 
 function getFlag(flag: string, defaultVal: string): string {
   const i = args.indexOf(flag);
@@ -46,7 +50,7 @@ export function taxCommandOutputOrThrow(
 ): string {
   if (code !== 0) {
     throw new Error(
-      `opentax command failed (${code}): deno run cli/main.ts ${
+      `opentax command failed (${code}): bun cli/main.ts ${
         args.join(" ")
       }\n${stderrText}${stdoutText}`,
     );
@@ -58,11 +62,8 @@ export function taxCommandOutputOrThrow(
 }
 
 async function tax(...args: string[]): Promise<string> {
-  const { code, stdout, stderr } = await new Deno.Command("deno", {
+  const { code, stdout, stderr } = await new sys.Command(process.execPath, {
     args: [
-      "run",
-      "--allow-read",
-      "--allow-write",
       join(TAX_DIR, "cli/main.ts"),
       ...args,
     ],
@@ -323,9 +324,9 @@ async function runCase(name: string): Promise<CaseResult> {
   const inputFile = join(caseDir, "input.json");
   const correctFile = join(caseDir, "correct.json");
   const caseData = benchmarkInputSchema.parse(
-    JSON.parse(await Deno.readTextFile(inputFile)),
+    JSON.parse(await fs.readFile(inputFile, "utf8")),
   );
-  const correct = JSON.parse(await Deno.readTextFile(correctFile));
+  const correct = JSON.parse(await fs.readFile(correctFile, "utf8"));
   benchmarkExpectedSchema.parse(correct);
   const rid = createdReturnSchema.parse(JSON.parse(
     await tax("return", "create", "--year", String(caseData.year), "--json"),
@@ -419,7 +420,7 @@ function resultRow(r: CaseResult, idx: number): string {
 // ── Progress + streaming output (all on stdout) ───────────────────────────────
 
 const encoder = new TextEncoder();
-const write = (s: string) => Deno.stdout.writeSync(encoder.encode(s));
+const write = (s: string) => writeSync(1, encoder.encode(s));
 
 function progressLine(done: number, total: number, running: number): string {
   const BAR_W = 30;
@@ -531,6 +532,6 @@ if (import.meta.main) {
   }
 
   if (fail > 0 || skipped > 0 || emptyCaseSet) {
-    Deno.exit(1);
+    process.exit(1);
   }
 }
