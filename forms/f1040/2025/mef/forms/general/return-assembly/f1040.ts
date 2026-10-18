@@ -493,7 +493,11 @@ function buildIRS1040(fields: Input, context?: MefBuildContext): string {
     context?.pending ?? {},
     mefTaxYear(context),
   );
-  assertQssNonclaimedChildSource(fields, context?.pending ?? {});
+  assertQssNonclaimedChildSource(
+    fields,
+    context?.pending ?? {},
+    mefTaxYear(context),
+  );
   assertIdentified1099IntOwner(
     fields as Record<string, unknown>,
     context?.pending,
@@ -522,7 +526,11 @@ function buildIRS1040(fields: Input, context?: MefBuildContext): string {
     fields as Record<string, unknown>,
     context?.pending,
   );
-  assertJointDependentRefundSource(fields, context?.pending);
+  assertJointDependentRefundSource(
+    fields,
+    context?.pending,
+    mefTaxYear(context),
+  );
   assertNoUnsupportedDeceasedReturn(
     fields,
     context?.pending?.general as Record<string, unknown> | undefined,

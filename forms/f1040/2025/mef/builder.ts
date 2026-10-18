@@ -313,7 +313,7 @@ function buildReturnXml(
   assertNecWithholdingRecipient(pending.f1099nec, filer);
   assert1099BRecipientOwner(pending.f1099b, filer, year);
   assertNoRepeatedBrokerSaleSources(pending.f1099b, pending.f8949);
-  assertCapitalSaleSourceRows(pending);
+  assertCapitalSaleSourceRows(pending, year);
   assertPatrIssuedCopies(pending.f1099patr);
   assertPatrWithholdingRecipient(pending.f1099patr, filer);
   assertLine1bHouseholdWageSource(pending);
@@ -333,7 +333,7 @@ function buildReturnXml(
   assertBusinessSchedule1Amounts(pending);
   assertOwned7203RequiredCopies(pending);
   assertHsaExcessRequiredCopy(pending);
-  assertRequiredLtcSource({ pending, filer });
+  assertRequiredLtcSource({ pending, filer, taxYear: year });
   assertLine1iCombatPayElectionSource(pending);
   assertSchedule2W2Line13Sources(pending);
   assertSchedule2W2Line17KSource(pending);
@@ -355,8 +355,8 @@ function buildReturnXml(
   assertF8288WithholdingOwner(pending.f8288, filer);
   assertSocialSecurityBenefitSource(pending);
   assertBenefitStatementOwner(pending, filer);
-  assertRrb1099rPensionSource(pending, filer);
-  assertIra1099rIncomeSource(pending);
+  assertRrb1099rPensionSource(pending, filer, year);
+  assertIra1099rIncomeSource(pending, year);
   assertExtensionPaymentSource(pending, filer);
   assertForm8915FSourceLinks(pending);
   assertKIncomeClassification(pending);
@@ -365,7 +365,7 @@ function buildReturnXml(
   assertScheduleCReceiptSourceIdentity(pending, filer);
   assertScheduleCStatutoryW2Sources(pending, filer);
   assertKWithholdingSourceIdentity(pending, filer);
-  assertKPersonalSaleSources(pending, filer);
+  assertKPersonalSaleSources(pending, filer, year);
   assertSchedule1Box3SourceIdentity(pending, filer);
   assertSchedule1Box8SourceIdentity(pending, filer);
   assertSchedule1Form8814Source(pending);
@@ -649,7 +649,7 @@ export async function buildMefBundle(
       "buildBinaryAttachments" in form && form.buildBinaryAttachments
         ? form.buildBinaryAttachments(
           (pending[form.pendingKey as keyof MefFormsPending] ?? {}) as never,
-          { filer: options.filer, pending },
+          { filer: options.filer, pending, taxYear: options.year },
         )
         : Promise.resolve([] as ReadonlyArray<MefPdfAttachment>)
     ),
