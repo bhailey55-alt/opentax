@@ -282,20 +282,8 @@
       "calculation standard_deduction",
       "calculation start"
     ],
-    "single-form8994-direct-employer-full": [
-      "calculation form8960",
-      "calculation standard_deduction",
-      "calculation start"
-    ],
-    "single-form8994-direct-employer-partial": [
-      "calculation form8960",
-      "calculation standard_deduction",
-      "calculation start"
-    ],
     "single-form8994-direct-employer-zero": [
-      "calculation form8960",
-      "calculation standard_deduction",
-      "calculation start"
+      "xml Form 8995 line 16 minimum deduction has no 2026v1.0 MeF element; export waits for a schema that carries it"
     ],
     "single-shop-health-premium-credit": [
       "calculation form8960",
@@ -341,9 +329,6 @@
       "calculation form8960",
       "calculation standard_deduction",
       "calculation start"
-    ],
-    "single-medicare-msa-partial-disability-prior-account": [
-      "calculation form8853"
     ],
     "mfs-ny-primary-form8995a-accounting-sstb-phasein": [
       "xml Form 8995-A FilingStatusThresholdCd 201775 is not a value the MeF schema enumerates; export waits for a schema that carries the return year's amounts"
@@ -403,9 +388,7 @@
       "calculation form8995a"
     ],
     "single-form8863-missing-tuition-form-taxable-scholarship-phaseout": [
-      "calculation form8960",
-      "calculation standard_deduction",
-      "calculation start"
+      "xml Form 8863 filing needs source MAGI, Credit Limit Worksheet, and finalized Form 1040/Schedule 3 credit lines to reconcile"
     ],
     "single-source-qef-1294-election": [
       "calculation form8960",
@@ -427,11 +410,6 @@
       "calculation threw [ { \"code\": \"custom\", \"message\": \"Invalid input\", \"path\": [ \"children\", 0, \"final_decree\", \"finalization_date\" ] } ]"
     ],
     "single-agri-biodiesel-producer-credit": [
-      "calculation form8960",
-      "calculation standard_deduction",
-      "calculation start"
-    ],
-    "single-divorced-agreed-joint-estimated-payment": [
       "calculation form8960",
       "calculation standard_deduction",
       "calculation start"
@@ -480,43 +458,11 @@
       "calculation standard_deduction",
       "calculation start"
     ],
-    "single-section-a-capital-gain-reduction-gift": [
-      "calculation form8960",
-      "calculation standard_deduction",
-      "calculation start"
-    ],
-    "single-section-a-donor-prepared-manuscript-reduction": [
-      "calculation form8960",
-      "calculation standard_deduction",
-      "calculation start"
-    ],
-    "single-two-short-term-reduced-gifts": [
-      "calculation form8960",
-      "calculation standard_deduction",
-      "calculation start"
-    ],
-    "single-trust-clean-electricity-investment-credit": [
-      "calculation form8960",
-      "calculation standard_deduction",
-      "calculation start"
-    ],
-    "single-geothermal-general-business-credit": [
-      "calculation f8835"
-    ],
-    "single-two-geothermal-business-credits": [
-      "calculation f8835"
-    ],
-    "single-wind-and-geothermal-business-credits": [
-      "calculation f8835"
-    ],
-    "single-geothermal-and-new-markets-credits": [
-      "calculation f8835"
-    ],
     "single-partnership-code-k-and-w2g": [
       "xml Withheld W-2G needs the issued 2025 form, structured payer identity, standard code, winnings, and withholding"
     ],
     "single-two-w2-flsa-overtime-schedule1a": [
-      "xml Schedule 1-A overtime filing needs tax year 2025"
+      "xml Schedule 1-A 2026 overtime filing needs W-2 box 12 code TT amounts"
     ],
     "single-employer-statement-flsa-overtime-schedule1a": [
       "calculation form8960",
@@ -543,7 +489,7 @@
       "calculation schedule1a"
     ],
     "joint-mixed-schedule1a": [
-      "xml Schedule 1-A overtime filing needs tax year 2025"
+      "xml Schedule 1-A 2026 overtime filing needs W-2 box 12 code TT amounts"
     ],
     "single-k-business-refund": [
       "calculation f1099k"
@@ -568,9 +514,6 @@
     ],
     "single-hsa-code2-excess": [
       "calculation form8889"
-    ],
-    "joint-two-hsa-owners": [
-      "xml Form 8889 paired printed lines differ from owner source calculation"
     ],
     "joint-other-coverage-hsa-current-excess": [
       "calculation form8889"
@@ -608,7 +551,8 @@
       "calculation form8815"
     ],
     "single-form8915f-disaster-and-ordinary-plan-distributions": [
-      "calculation threw [ { \"code\": \"custom\", \"path\": [ \"f8915fs\", 0, \"distribution_date\" ], \"message\": \"Form 8915-F distribution must be within this 2025 disaster's qualified period\" "
+      "rule F8915F-001",
+      "rule F8915F-002"
     ],
     "single-form7203-capital-and-debt-basis-loss": [
       "calculation form8960",
@@ -632,20 +576,8 @@
     "single-schedule-j-farm-income-averaging": [
       "calculation income_tax_calculation"
     ],
-    "single-form8881-startup-and-auto-enrollment": [
-      "calculation form8960",
-      "calculation standard_deduction",
-      "calculation start"
-    ],
     "mfj-form2210f-first-joint-filing": [
-      "calculation form8960",
-      "calculation standard_deduction",
-      "calculation start"
-    ],
-    "single-fee-basis-employee-expenses": [
-      "calculation form8960",
-      "calculation standard_deduction",
-      "calculation start"
+      "calculation f1040"
     ],
     "single-certified-work-opportunity-credit": [
       "calculation form8960",
@@ -658,9 +590,7 @@
       "calculation start"
     ],
     "single-employer-childcare-facility-and-referral-credit": [
-      "calculation form8960",
-      "calculation standard_deduction",
-      "calculation start"
+      "calculation f8882"
     ],
     "single-form8863-two-school-llc": [
       "xml Form 8863 filing needs source MAGI, Credit Limit Worksheet, and finalized Form 1040/Schedule 3 credit lines to reconcile"
@@ -815,19 +745,16 @@
     "joint-primary-wotc-upper-edge": "TY2026 law: shifted a year, the sample hires its WOTC employee in 2026; IRC \u00a751(c)(4) ends the work opportunity credit for individuals who begin work after December 31, 2025, so the 2026 return correctly cannot claim it",
     "joint-primary-wotc-upper-plus-one": "TY2026 law: shifted a year, the sample hires its WOTC employee in 2026; IRC \u00a751(c)(4) ends the work opportunity credit for individuals who begin work after December 31, 2025, so the 2026 return correctly cannot claim it",
     "joint-primary-wotc-partial-above": "TY2026 law: shifted a year, the sample hires its WOTC employee in 2026; IRC \u00a751(c)(4) ends the work opportunity credit for individuals who begin work after December 31, 2025, so the 2026 return correctly cannot claim it",
-    "single-form8994-direct-employer-full": "Open TY2026 work: Form 8994 names the 2024 compensation year and its $93,000 limit in its schema; Notice 2026-28 changes the 2026 credit",
-    "single-form8994-direct-employer-partial": "Open TY2026 work: Form 8994 names the 2024 compensation year and its $93,000 limit in its schema; Notice 2026-28 changes the 2026 credit",
-    "single-form8994-direct-employer-zero": "Open TY2026 work: Form 8994 names the 2024 compensation year and its $93,000 limit in its schema; Notice 2026-28 changes the 2026 credit",
-    "single-shop-health-premium-credit": "Open TY2026 work: Form 8941 checks each employee against the 2025 IRS rating-area average premium table and 2025 payroll year; the 2026 Form 8941 instructions table is not in irs/corpus/ty2026",
-    "single-shop-part-year-enrollment": "Open TY2026 work: Form 8941 checks each employee against the 2025 IRS rating-area average premium table and 2025 payroll year; the 2026 Form 8941 instructions table is not in irs/corpus/ty2026",
-    "single-shop-mixed-family-tiers": "Open TY2026 work: Form 8941 checks each employee against the 2025 IRS rating-area average premium table and 2025 payroll year; the 2026 Form 8941 instructions table is not in irs/corpus/ty2026",
-    "single-shop-list-computed-family-floor": "Open TY2026 work: Form 8941 checks each employee against the 2025 IRS rating-area average premium table and 2025 payroll year; the 2026 Form 8941 instructions table is not in irs/corpus/ty2026",
-    "single-shop-multiple-qhp-reference-eligibility": "Open TY2026 work: Form 8941 checks each employee against the 2025 IRS rating-area average premium table and 2025 payroll year; the 2026 Form 8941 instructions table is not in irs/corpus/ty2026",
-    "single-shop-seasonal-excluded-workers": "Open TY2026 work: Form 8941 checks each employee against the 2025 IRS rating-area average premium table and 2025 payroll year; the 2026 Form 8941 instructions table is not in irs/corpus/ty2026",
-    "same-proprietor-two-business-shop-common-control": "Open TY2026 work: Form 8941 checks each employee against the 2025 IRS rating-area average premium table and 2025 payroll year; the 2026 Form 8941 instructions table is not in irs/corpus/ty2026",
-    "same-proprietor-three-business-shop-common-control": "Open TY2026 work: Form 8941 checks each employee against the 2025 IRS rating-area average premium table and 2025 payroll year; the 2026 Form 8941 instructions table is not in irs/corpus/ty2026",
-    "independent-mf-joint-spouse-shop-two-form8941": "Open TY2026 work: Form 8941 checks each employee against the 2025 IRS rating-area average premium table and 2025 payroll year; the 2026 Form 8941 instructions table is not in irs/corpus/ty2026",
-    "single-medicare-msa-partial-disability-prior-account": "Open TY2026 work: Form 8853 Medicare MSA ledger names 2024/2025 in its fields",
+    "single-form8994-direct-employer-zero": "MeF schema gap: 2026v1.0 has no element for the IRC \u00a7199A(i) minimum deduction (P.L. 119-21 \u00a770105; draft 2026 Form 8995 line 16)",
+    "single-shop-health-premium-credit": "Open TY2026 work, source unpublished: Form 8941 checks each employee against the IRS small-group average premium table by state and rating area; the draft 2026 Instructions for Form 8941 (May 18, 2026; irs.gov/pub/irs-dft/i8941--dft.pdf) still print the 2025 tables and say the 2026 tables are not available until November 2026",
+    "single-shop-part-year-enrollment": "Open TY2026 work, source unpublished: Form 8941 checks each employee against the IRS small-group average premium table by state and rating area; the draft 2026 Instructions for Form 8941 (May 18, 2026; irs.gov/pub/irs-dft/i8941--dft.pdf) still print the 2025 tables and say the 2026 tables are not available until November 2026",
+    "single-shop-mixed-family-tiers": "Open TY2026 work, source unpublished: Form 8941 checks each employee against the IRS small-group average premium table by state and rating area; the draft 2026 Instructions for Form 8941 (May 18, 2026; irs.gov/pub/irs-dft/i8941--dft.pdf) still print the 2025 tables and say the 2026 tables are not available until November 2026",
+    "single-shop-list-computed-family-floor": "Open TY2026 work, source unpublished: Form 8941 checks each employee against the IRS small-group average premium table by state and rating area; the draft 2026 Instructions for Form 8941 (May 18, 2026; irs.gov/pub/irs-dft/i8941--dft.pdf) still print the 2025 tables and say the 2026 tables are not available until November 2026",
+    "single-shop-multiple-qhp-reference-eligibility": "Open TY2026 work, source unpublished: Form 8941 checks each employee against the IRS small-group average premium table by state and rating area; the draft 2026 Instructions for Form 8941 (May 18, 2026; irs.gov/pub/irs-dft/i8941--dft.pdf) still print the 2025 tables and say the 2026 tables are not available until November 2026",
+    "single-shop-seasonal-excluded-workers": "Open TY2026 work, source unpublished: Form 8941 checks each employee against the IRS small-group average premium table by state and rating area; the draft 2026 Instructions for Form 8941 (May 18, 2026; irs.gov/pub/irs-dft/i8941--dft.pdf) still print the 2025 tables and say the 2026 tables are not available until November 2026",
+    "same-proprietor-two-business-shop-common-control": "Open TY2026 work, source unpublished: Form 8941 checks each employee against the IRS small-group average premium table by state and rating area; the draft 2026 Instructions for Form 8941 (May 18, 2026; irs.gov/pub/irs-dft/i8941--dft.pdf) still print the 2025 tables and say the 2026 tables are not available until November 2026",
+    "same-proprietor-three-business-shop-common-control": "Open TY2026 work, source unpublished: Form 8941 checks each employee against the IRS small-group average premium table by state and rating area; the draft 2026 Instructions for Form 8941 (May 18, 2026; irs.gov/pub/irs-dft/i8941--dft.pdf) still print the 2025 tables and say the 2026 tables are not available until November 2026",
+    "independent-mf-joint-spouse-shop-two-form8941": "Open TY2026 work, source unpublished: Form 8941 checks each employee against the IRS small-group average premium table by state and rating area; the draft 2026 Instructions for Form 8941 (May 18, 2026; irs.gov/pub/irs-dft/i8941--dft.pdf) still print the 2025 tables and say the 2026 tables are not available until November 2026",
     "mfs-ny-primary-form8995a-accounting-sstb-phasein": "MeF schema gap: 2026v1.0 IRS8995A/IRS8995AScheduleA enumerate only the TY2025 FilingStatusThresholdCd values (197300, 394600); Rev. Proc. 2025-32 \u00a74.26 sets 201750/201775/403500 for 2026",
     "mfs-ak-primary-form8995a-accounting-sstb-phasein": "MeF schema gap: 2026v1.0 IRS8995A/IRS8995AScheduleA enumerate only the TY2025 FilingStatusThresholdCd values (197300, 394600); Rev. Proc. 2025-32 \u00a74.26 sets 201750/201775/403500 for 2026",
     "mfs-tn-primary-form8995a-accounting-sstb-phasein": "MeF schema gap: 2026v1.0 IRS8995A/IRS8995AScheduleA enumerate only the TY2025 FilingStatusThresholdCd values (197300, 394600); Rev. Proc. 2025-32 \u00a74.26 sets 201750/201775/403500 for 2026",
@@ -847,33 +774,24 @@
     "joint-spouse-owned-form8995a-patron-c-health": "Sample amount: the reviewed health plan carries its TY2025 Schedule 1 line 15 SE deduction; Schedule SE recomputes it with the 2026 social security wage base, and amounts are not shifted",
     "joint-spouse-owned-form8995a-patron-income-cap": "MeF schema gap: 2026v1.0 IRS8995A/IRS8995AScheduleA enumerate only the TY2025 FilingStatusThresholdCd values (197300, 394600); Rev. Proc. 2025-32 \u00a74.26 sets 201750/201775/403500 for 2026",
     "single-form8995a-two-business-aggregation": "Sample amount: the reviewed Form 8995-A Schedule B members carry QBI computed with the 2025 self-employment tax deduction; amounts are not shifted",
-    "single-form8863-missing-tuition-form-taxable-scholarship-phaseout": "Open TY2026 work: the dependent scholarship review pins tax_year 2025",
+    "single-form8863-missing-tuition-form-taxable-scholarship-phaseout": "Sample fixture input: its Form 8863 filer MAGI and Credit Limit Worksheet operands are TY2025 amounts",
     "single-source-qef-1294-election": "Open TY2026 work: Form 8621 pins the 2025 PFIC year, acquisition flags and country codes",
     "single-retained-4852-ordinary-roth": "Open TY2026 work: the Roth/IRA basis sources pin 2024/2025 years and the April 15, 2026 contribution deadline",
     "single-passive-partnership-new-markets": "Sample amount: the reviewed Form 8582-CR line 6 worksheet carries tax computed under the 2025 rate schedule; amounts are not shifted",
     "single-mixed-passive-new-markets": "Sample amount: the reviewed Form 8582-CR line 6 worksheet carries tax computed under the 2025 rate schedule; amounts are not shifted",
-    "single-reviewed-adoption-credit": "Open TY2026 work: a staged source (Form 8839 or Form 8915-F) pins a 2025 date and throws before calculation",
+    "single-reviewed-adoption-credit": "Open TY2026 work: the staged Form 8839 route requires a 2025 decree (childSchema finalization_date) and carries TY2025 amounts through prepare/settle ($17,280 maximum, $259,190 phase-out start, $5,000 refundable), its carryforward (origin 2025) and MeF; the Rev. Proc. 2025-32 \u00a74.04 2026 amounts are in config but not threaded through that route",
     "single-agri-biodiesel-producer-credit": "Open TY2026 work: Form 8864 accepts only 2025 small agri-biodiesel sales",
-    "single-divorced-agreed-joint-estimated-payment": "Open TY2026 work: the joint estimated-payment allocation names 2025 in its field (divorce_date_2025)",
     "single-w2-three-eic-children-with-reviewed-birth": "Named TY2025-only route: the node refuses TY2026 until that year's law is implemented",
     "single-unreported-refinance-points": "Open TY2026 work: refinance-points ledger names its prior years in field names (prior_year_2023/2024)",
     "single-2023-refinance-points-ledger": "Open TY2026 work: refinance-points ledger names its prior years in field names (prior_year_2023/2024)",
-    "single-8862-ctc-reinstatement": "Open TY2026 work in Schedule 8812 (owned by the Schedule 8812 earned-income work)",
-    "single-five-dependent-continuation": "Open TY2026 work in Schedule 8812 (owned by the Schedule 8812 earned-income work)",
+    "single-8862-ctc-reinstatement": "Sample amount: the reviewed Schedule 8812 carries the TY2025 Form 1040 line 18 tax ($9,055 on $80,000 single AGI); the 2026 return figures line 18 with the Rev. Proc. 2025-32 standard deduction and rates, and amounts are not shifted",
+    "single-five-dependent-continuation": "Sample amount: the reviewed Schedule 8812 carries the TY2025 Form 1040 line 18 tax ($9,055 on $80,000 single AGI); the 2026 return figures line 18 with the Rev. Proc. 2025-32 standard deduction and rates, and amounts are not shifted",
     "single-withheld-w2g": "Named TY2025-only route: W-2G payer Copy B verification reads the 2025 Form W-2G template; the 2026 template (irs/corpus/ty2026/authorities/fw2g--2026.pdf) is not mapped yet",
     "joint-schedule-h-spouse-withholding-only": "Open TY2026 work: Schedule H family withholding source replays TY2025 payroll rules",
     "single-schedule-h-fica-and-futa": "Named TY2025-only route: Schedule H FUTA credit-reduction states for 2026 are not yet published",
     "single-schedule-h-three-state-futa": "Named TY2025-only route: Schedule H FUTA credit-reduction states for 2026 are not yet published",
     "single-form8814-child-dividends-adjustments": "Named TY2025-only route: TY2026 Form 8814 and Schedule J tax worksheets are not supported yet",
     "single-form8814-child-gain-with-schedule-d": "Named TY2025-only route: TY2026 Form 8814 and Schedule J tax worksheets are not supported yet",
-    "single-section-a-capital-gain-reduction-gift": "Open TY2026 work: Form 8283 reduction reviews replay TY2025 holding-period facts",
-    "single-section-a-donor-prepared-manuscript-reduction": "Open TY2026 work: Form 8283 reduction reviews replay TY2025 holding-period facts",
-    "single-two-short-term-reduced-gifts": "Open TY2026 work: Form 8283 reduction reviews replay TY2025 holding-period facts",
-    "single-trust-clean-electricity-investment-credit": "Open TY2026 work: Form 3468 Part V pins a 2025 service date",
-    "single-geothermal-general-business-credit": "Open TY2026 work: Form 8835 rates need the 2026 IRC \u00a745(e)(2) inflation adjustment factor, not in irs/corpus/ty2026; the node accepts only 2025 production",
-    "single-two-geothermal-business-credits": "Open TY2026 work: Form 8835 rates need the 2026 IRC \u00a745(e)(2) inflation adjustment factor, not in irs/corpus/ty2026; the node accepts only 2025 production",
-    "single-wind-and-geothermal-business-credits": "Open TY2026 work: Form 8835 rates need the 2026 IRC \u00a745(e)(2) inflation adjustment factor, not in irs/corpus/ty2026; the node accepts only 2025 production",
-    "single-geothermal-and-new-markets-credits": "Open TY2026 work: Form 8835 rates need the 2026 IRC \u00a745(e)(2) inflation adjustment factor, not in irs/corpus/ty2026; the node accepts only 2025 production",
     "single-partnership-code-k-and-w2g": "Named TY2025-only route: W-2G payer Copy B verification reads the 2025 Form W-2G template; the 2026 template (irs/corpus/ty2026/authorities/fw2g--2026.pdf) is not mapped yet",
     "single-two-w2-flsa-overtime-schedule1a": "TY2026 law: the sample reports overtime on a box 14 or employer statement, the TY2025 reporting route; 2026 W-2s report it in box 12 code TT (2026 W-2 instructions, irs/corpus/ty2026/authorities/iw2w3--2026.pdf)",
     "single-employer-statement-flsa-overtime-schedule1a": "TY2026 law: the sample reports overtime on a box 14 or employer statement, the TY2025 reporting route; 2026 W-2s report it in box 12 code TT (2026 W-2 instructions, irs/corpus/ty2026/authorities/iw2w3--2026.pdf)",
@@ -890,9 +808,8 @@
     "single-k-mixed-error-duplicate-personal": "MeF schema gap: 2026v1.0 has no element for the IRC \u00a7199A(i) minimum deduction (P.L. 119-21 \u00a770105; draft 2026 Form 8995 line 16)",
     "single-schedule-c-simplified-home-office": "MeF schema gap: 2026v1.0 has no element for the IRC \u00a7199A(i) minimum deduction (P.L. 119-21 \u00a770105; draft 2026 Form 8995 line 16)",
     "single-two-at-risk-business-losses": "MeF schema gap: 2026v1.0 has no element for the IRC \u00a7199A(i) minimum deduction (P.L. 119-21 \u00a770105; draft 2026 Form 8995 line 16)",
-    "single-hsa-code2-excess": "Open TY2026 work: Form 8889 owner source calculation replays TY2025 HSA rules",
-    "joint-two-hsa-owners": "Open TY2026 work: Form 8889 owner source calculation replays TY2025 HSA rules",
-    "joint-other-coverage-hsa-current-excess": "Open TY2026 work: Form 8889 owner source calculation replays TY2025 HSA rules",
+    "single-hsa-code2-excess": "Sample amount: the sample returns a $900 excess over the TY2025 $4,300 self-only limit; Rev. Proc. 2025-19 sets $4,400 for 2026, so the 2026 excess is $800 and amounts are not shifted",
+    "joint-other-coverage-hsa-current-excess": "Sample amount: the spouses' signed allocations ($2,000 + $2,275) divide six months of the TY2025 $8,550 family limit; Rev. Proc. 2025-19 sets $8,750 for 2026 ($4,375 for six months), and amounts are not shifted",
     "single-alternating-policies-all-covered-slcsp-corrections": "TY2026 law: the shifted household is above 400% FPL, which IRC \u00a736B(c)(1)(A) again excludes after 2025 (Rev. Proc. 2025-25); the MeF reconciliation has no APTC-only above-limit route yet (open TY2026 work)",
     "single-alternating-policies-both-slcsp-corrected": "TY2026 law: the shifted household is above 400% FPL, which IRC \u00a736B(c)(1)(A) again excludes after 2025 (Rev. Proc. 2025-25); the MeF reconciliation has no APTC-only above-limit route yet (open TY2026 work)",
     "single-five-sequential-corrected-slcsp-policies": "TY2026 law: the shifted household is above 400% FPL, which IRC \u00a736B(c)(1)(A) again excludes after 2025 (Rev. Proc. 2025-25); the MeF reconciliation has no APTC-only above-limit route yet (open TY2026 work)",
@@ -903,19 +820,17 @@
     "single-form8863-lifetime-learning-scholarship": "Sample fixture input: its Form 8863 filer MAGI and Credit Limit Worksheet operands are TY2025 amounts",
     "single-form8606-post-year-contribution-and-distribution": "Open TY2026 work: the Roth/IRA basis sources pin 2024/2025 years and the April 15, 2026 contribution deadline",
     "single-form8815-series-ee-bond-exclusion": "Named TY2025-only route: the node refuses TY2026 until that year's law is implemented",
-    "single-form8915f-disaster-and-ordinary-plan-distributions": "Open TY2026 work: a staged source (Form 8839 or Form 8915-F) pins a 2025 date and throws before calculation",
+    "single-form8915f-disaster-and-ordinary-plan-distributions": "MeF rules gap: the 2026v1.0 package words F8915F-001-01 and F8915F-002-01 for a return filed for Tax Year 2025 (rejecting CalendarYrDisasterCd and TaxYearFilingFormCd 2026); until a package states the TY2026 check, the engine keeps the coded TY2025 rule, which rejects this 2026 disaster and filing year",
     "single-form7203-capital-and-debt-basis-loss": "Open TY2026 work: Form 7203 debt and stock ledgers pin 2025 dates",
-    "single-form982-qpri-exclusion": "Open TY2026 work: Form 982 QPRI discharge date is pinned to 2025",
+    "single-form982-qpri-exclusion": "TY2026 law: shifted a year, the QPRI discharge falls in 2026; IRC \u00a7108(a)(1)(E) excludes qualified principal residence indebtedness discharged before January 1, 2026 unless under an arrangement entered into and evidenced in writing before then (Instructions for Form 982, line 1e), and the sample has no such arrangement",
     "single-form5695-door-and-air-conditioner": "TY2026 law: P.L. 119-21 \u00a7\u00a770505-70506 end the \u00a725C and \u00a725D credits for property placed in service after 2025",
     "single-form461-schedule-c-excess-business-loss": "Same finding in the TY2025 baseline: not a TY2026 difference",
     "single-form8396-certified-loan-interest-credit": "Open TY2026 work: Form 8396 names its 2024 carryforward and 2025 interest in field names",
     "single-schedule-j-farm-income-averaging": "Named TY2025-only route: TY2026 Form 8814 and Schedule J tax worksheets are not supported yet",
-    "single-form8881-startup-and-auto-enrollment": "Open TY2026 work: Form 8881 pins the 2025 first credit year and cost dates",
-    "mfj-form2210f-first-joint-filing": "Open TY2026 work: Form 2210-F box B source names 2024/2025 gross income years and 2026 payment dates",
-    "single-fee-basis-employee-expenses": "Open TY2026 work: Form 2106 pins tax_year 2025 and the 70-cent rate; 2026 has two rates (Notice 2026-10, Announcement 2026-11)",
+    "mfj-form2210f-first-joint-filing": "Sample amount: the Form 2210-F box B source carries the TY2025 Form 1040 line 22 tax, which the 2026 return refigures with Rev. Proc. 2025-32 rates; with matching amounts, an underpayment still needs the line 16 rate the draft 2026 Form 2210-F prints as x.xx (not yet published)",
     "single-certified-work-opportunity-credit": "TY2026 law: shifted a year, the sample hires its WOTC employee in 2026; IRC \u00a751(c)(4) ends the work opportunity credit for individuals who begin work after December 31, 2025, so the 2026 return correctly cannot claim it",
     "single-reported-tax-credit-bond": "Dated fact outside TY2026: shifting the sample moves its 2017 QECB issue date past the December 31, 2017 cutoff (P.L. 115-97 \u00a713404 repealed tax credit bonds issued after 2017); a 2026 version of this bond cannot exist",
-    "single-employer-childcare-facility-and-referral-credit": "Open TY2026 work: Form 8882 pins 2025 cost dates",
+    "single-employer-childcare-facility-and-referral-credit": "Sample input: the draft 2026 Form 8882 (Rev. December 2026) item A asks whether the employer is an IRC \u00a745F(c)(4) eligible small business (40% or 50% rate, P.L. 119-21 \u00a770401), a fact the TY2025 sample does not carry; once answered, export still waits for a schema past 2026v1.0, whose IRS8882 has only the 25% facility line and $150,000 limit",
     "single-form8863-two-school-llc": "Sample fixture input: its Form 8863 filer MAGI and Credit Limit Worksheet operands are TY2025 amounts",
     "single-form8863-two-school-aoc": "Sample fixture input: its Form 8863 filer MAGI and Credit Limit Worksheet operands are TY2025 amounts",
     "qualified-tip-qbi-advanced-event-wotc-tip-exclusion": "TY2026 law: shifted a year, the sample hires its WOTC employee in 2026; IRC \u00a751(c)(4) ends the work opportunity credit for individuals who begin work after December 31, 2025, so the 2026 return correctly cannot claim it",
@@ -927,14 +842,14 @@
     "mixed-cf-tip-no-health": "TY2026 law: shifted a year, the sample hires its WOTC employee in 2026; IRC \u00a751(c)(4) ends the work opportunity credit for individuals who begin work after December 31, 2025, so the 2026 return correctly cannot claim it",
     "mixed-cf-tip-owned-health": "TY2026 law: shifted a year, the sample hires its WOTC employee in 2026; IRC \u00a751(c)(4) ends the work opportunity credit for individuals who begin work after December 31, 2025, so the 2026 return correctly cannot claim it",
     "mixed-cf-tip-phase-wotc": "TY2026 law: shifted a year, the sample hires its WOTC employee in 2026; IRC \u00a751(c)(4) ends the work opportunity credit for individuals who begin work after December 31, 2025, so the 2026 return correctly cannot claim it",
-    "same-proprietor-two-c-one-f-shop-full": "Open TY2026 work: Form 8941 checks each employee against the 2025 IRS rating-area average premium table and 2025 payroll year; the 2026 Form 8941 instructions table is not in irs/corpus/ty2026",
-    "same-proprietor-two-c-one-f-shop-partial": "Open TY2026 work: Form 8941 checks each employee against the 2025 IRS rating-area average premium table and 2025 payroll year; the 2026 Form 8941 instructions table is not in irs/corpus/ty2026",
-    "same-proprietor-two-c-one-f-shop-zero": "Open TY2026 work: Form 8941 checks each employee against the 2025 IRS rating-area average premium table and 2025 payroll year; the 2026 Form 8941 instructions table is not in irs/corpus/ty2026",
-    "owned-farm-shop-full-use": "Open TY2026 work: Form 8941 checks each employee against the 2025 IRS rating-area average premium table and 2025 payroll year; the 2026 Form 8941 instructions table is not in irs/corpus/ty2026",
-    "owned-farm-shop-limited-use": "Open TY2026 work: Form 8941 checks each employee against the 2025 IRS rating-area average premium table and 2025 payroll year; the 2026 Form 8941 instructions table is not in irs/corpus/ty2026",
-    "owned-farm-shop-zero-use": "Open TY2026 work: Form 8941 checks each employee against the 2025 IRS rating-area average premium table and 2025 payroll year; the 2026 Form 8941 instructions table is not in irs/corpus/ty2026",
+    "same-proprietor-two-c-one-f-shop-full": "Open TY2026 work, source unpublished: Form 8941 checks each employee against the IRS small-group average premium table by state and rating area; the draft 2026 Instructions for Form 8941 (May 18, 2026; irs.gov/pub/irs-dft/i8941--dft.pdf) still print the 2025 tables and say the 2026 tables are not available until November 2026",
+    "same-proprietor-two-c-one-f-shop-partial": "Open TY2026 work, source unpublished: Form 8941 checks each employee against the IRS small-group average premium table by state and rating area; the draft 2026 Instructions for Form 8941 (May 18, 2026; irs.gov/pub/irs-dft/i8941--dft.pdf) still print the 2025 tables and say the 2026 tables are not available until November 2026",
+    "same-proprietor-two-c-one-f-shop-zero": "Open TY2026 work, source unpublished: Form 8941 checks each employee against the IRS small-group average premium table by state and rating area; the draft 2026 Instructions for Form 8941 (May 18, 2026; irs.gov/pub/irs-dft/i8941--dft.pdf) still print the 2025 tables and say the 2026 tables are not available until November 2026",
+    "owned-farm-shop-full-use": "Open TY2026 work, source unpublished: Form 8941 checks each employee against the IRS small-group average premium table by state and rating area; the draft 2026 Instructions for Form 8941 (May 18, 2026; irs.gov/pub/irs-dft/i8941--dft.pdf) still print the 2025 tables and say the 2026 tables are not available until November 2026",
+    "owned-farm-shop-limited-use": "Open TY2026 work, source unpublished: Form 8941 checks each employee against the IRS small-group average premium table by state and rating area; the draft 2026 Instructions for Form 8941 (May 18, 2026; irs.gov/pub/irs-dft/i8941--dft.pdf) still print the 2025 tables and say the 2026 tables are not available until November 2026",
+    "owned-farm-shop-zero-use": "Open TY2026 work, source unpublished: Form 8941 checks each employee against the IRS small-group average premium table by state and rating area; the draft 2026 Instructions for Form 8941 (May 18, 2026; irs.gov/pub/irs-dft/i8941--dft.pdf) still print the 2025 tables and say the 2026 tables are not available until November 2026",
     "owned-farm-shop-shop-wotc": "TY2026 law: shifted a year, the sample hires its WOTC employee in 2026; IRC \u00a751(c)(4) ends the work opportunity credit for individuals who begin work after December 31, 2025, so the 2026 return correctly cannot claim it",
-    "carrier-daily-billed-shop-full-use": "Open TY2026 work: Form 8941 checks each employee against the 2025 IRS rating-area average premium table and 2025 payroll year; the 2026 Form 8941 instructions table is not in irs/corpus/ty2026",
-    "carrier-daily-billed-shop-partial-use": "Open TY2026 work: Form 8941 checks each employee against the 2025 IRS rating-area average premium table and 2025 payroll year; the 2026 Form 8941 instructions table is not in irs/corpus/ty2026"
+    "carrier-daily-billed-shop-full-use": "Open TY2026 work, source unpublished: Form 8941 checks each employee against the IRS small-group average premium table by state and rating area; the draft 2026 Instructions for Form 8941 (May 18, 2026; irs.gov/pub/irs-dft/i8941--dft.pdf) still print the 2025 tables and say the 2026 tables are not available until November 2026",
+    "carrier-daily-billed-shop-partial-use": "Open TY2026 work, source unpublished: Form 8941 checks each employee against the IRS small-group average premium table by state and rating area; the draft 2026 Instructions for Form 8941 (May 18, 2026; irs.gov/pub/irs-dft/i8941--dft.pdf) still print the 2025 tables and say the 2026 tables are not available until November 2026"
   }
 }

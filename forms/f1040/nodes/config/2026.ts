@@ -372,4 +372,32 @@ export const config2026: F1040Config = {
   ptcRepaymentCaps: [],
   // P.L. 119-21 §71302 ends the IRC §36B(c)(1)(B) exception after 2025.
   ptcLawfullyPresentBelow100Fpl: false,
+  // FR Doc. 2026-10906 (published June 1, 2026): inflation adjustment
+  // factor 2.0570; 3.1 and 1.5 cents before 2022, 0.6 and 0.3 cents after.
+  renewableProductionRates: {
+    placedBefore2022: { full: 0.031, half: 0.015 },
+    placedAfter2021: { full: 0.006, half: 0.003 },
+  },
+  // Instructions for Form 8994 (Rev. December 2024), Compensation Limit
+  // Per Year: 60% of the 2025 IRC §414(q)(1)(B) amount of $160,000
+  // (Notice 2024-80).
+  paidLeaveCompensationLimit: 96_000,
+  // IRC §45F as amended by P.L. 119-21 §70401; draft Form 8882 (Rev.
+  // December 2026) lines 2, 5 and 8.
+  employerProvidedChildcare: {
+    facilityRate: 0.40,
+    smallBusinessFacilityRate: 0.50,
+    referralRate: 0.10,
+    creditLimit: 500_000,
+    smallBusinessCreditLimit: 600_000,
+  },
+  // Draft Instructions for Form 8881 (Rev. December 2026), line 6b: $110,000.
+  retirementContributionCreditWageLimit: 110_000,
+  // Instructions for Form 3468 (2026), Part V: no credit where construction
+  // begun after 2025 includes material assistance from a prohibited foreign
+  // entity (P.L. 119-21; Notice 2026-15).
+  cleanElectricityMaterialAssistanceAfter: "2025-12-31",
+  // Draft 2026 Form 2210-F (created 4/1/26) prints line 16's rate as "x.xx";
+  // the January 15-April 15, 2027 rate is not yet published.
+  form2210fPenaltyRate: null,
 };

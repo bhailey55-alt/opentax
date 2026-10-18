@@ -31,6 +31,27 @@ export type DepCareSecondPhaseout = {
   readonly floorRate: number;
 };
 
+/**
+ * Form 8835 line 1 rates in dollars per kWh for electricity sold in the
+ * calendar year (IRC §45(a)(1), adjusted under §45(b)(2)). `full` is wind,
+ * closed-loop biomass, geothermal and solar; `half` is the §45(b)(4)(A)
+ * one-half rate.
+ */
+export type RenewableProductionRates = {
+  readonly placedBefore2022: { readonly full: number; readonly half: number };
+  readonly placedAfter2021: { readonly full: number; readonly half: number };
+};
+
+/** IRC §45F(a)-(b): Form 8882 rates and credit limit. */
+export type EmployerProvidedChildcareTerms = {
+  readonly facilityRate: number;
+  /** IRC §45F(c)(4) eligible small business; equal when the year has no tier. */
+  readonly smallBusinessFacilityRate: number;
+  readonly referralRate: number;
+  readonly creditLimit: number;
+  readonly smallBusinessCreditLimit: number;
+};
+
 /** IRC §36B(b)(3)(A) applicable percentage band, in hundredths of a percent. */
 export type PtcApplicablePercentageBand = {
   /** Household income as a percentage of the FPL: at least this. */
@@ -321,4 +342,16 @@ export interface F1040Config {
   ptcRepaymentCaps: ReadonlyArray<PtcRepaymentCap>;
   /** IRC §36B(c)(1)(B): lawfully present individuals below 100% FPL. */
   ptcLawfullyPresentBelow100Fpl: boolean;
+
+  // ── Business credits ─────────────────────────────────────────────────────
+  renewableProductionRates: RenewableProductionRates;
+  /** IRC §45S(d)(2): a qualifying employee's prior-year compensation limit. */
+  paidLeaveCompensationLimit: number;
+  employerProvidedChildcare: EmployerProvidedChildcareTerms;
+  /** Form 8881 line 6b: employees paid more than this get no contribution credit. */
+  retirementContributionCreditWageLimit: number;
+  /** IRC §48E: construction begun after this ISO date needs a material assistance cost ratio; null when none. */
+  cleanElectricityMaterialAssistanceAfter: string | null;
+  /** Form 2210-F line 16 annual rate; null until the IRS publishes it. */
+  form2210fPenaltyRate: number | null;
 }

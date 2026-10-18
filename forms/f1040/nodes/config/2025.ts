@@ -840,4 +840,29 @@ export const config2025: F1040Config = {
     { maxFplPct: 400, singleCap: 1_625, otherCap: 3_250 },
   ],
   ptcLawfullyPresentBelow100Fpl: true,
+  // 2025 Form 8835 instructions, Credit rates (FR Doc. 2025-09366).
+  renewableProductionRates: {
+    placedBefore2022: { full: 0.03, half: 0.015 },
+    placedAfter2021: { full: 0.006, half: 0.003 },
+  },
+  // Instructions for Form 8994 (Rev. December 2024), Compensation Limit
+  // Per Year: 60% of the 2024 IRC §414(q)(1)(B) amount of $155,000.
+  paidLeaveCompensationLimit: 93_000,
+  // IRC §45F(a) and (b) before P.L. 119-21; Form 8882 (Rev. 12/2017) lines
+  // 2, 4 and 7.
+  employerProvidedChildcare: {
+    facilityRate: 0.25,
+    smallBusinessFacilityRate: 0.25,
+    referralRate: 0.10,
+    creditLimit: 150_000,
+    smallBusinessCreditLimit: 150_000,
+  },
+  // Form 8881 (Rev. December 2025) line 6b: wages over $105,000 exclude an
+  // employee from the IRC §45E(f) contribution credit.
+  retirementContributionCreditWageLimit: 105_000,
+  // IRC §48E material-assistance rules apply to construction begun after
+  // 2025 (P.L. 119-21); none for TY2025.
+  cleanElectricityMaterialAssistanceAfter: null,
+  // 2025 Form 2210-F line 16: underpayment x days / 365 x 0.07.
+  form2210fPenaltyRate: 0.07,
 };
