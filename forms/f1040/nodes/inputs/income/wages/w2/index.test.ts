@@ -48,6 +48,10 @@ function compute(items: ReturnType<typeof minimalItem>[]) {
   return w2.compute({ taxYear: 2025, formType: "f1040" }, { w2s: items });
 }
 
+function compute2026(items: ReturnType<typeof minimalItem>[]) {
+  return w2.compute({ taxYear: 2026, formType: "f1040" }, { w2s: items });
+}
+
 function findOutput(result: ReturnType<typeof compute>, nodeType: string) {
   return result.outputs.find((o) => o.nodeType === nodeType);
 }
@@ -80,6 +84,21 @@ test("distinct reviewed code D W-2s deposit only their 2025 excess on line 1h an
     fieldsOf(result.outputs, agi_aggregator)?.line1h_other_earned,
     3_500,
   );
+});
+
+// Notice 2025-67: the 2026 elective deferral limit is $24,500 ($32,500 at age
+// 50, $35,750 at ages 60-63).
+test("2026 code D excess is measured against the $24,500 deferral limit", () => {
+  const result = compute2026([
+    reviewedCodeDW2("12-3456789", 15_000),
+    reviewedCodeDW2("98-7654321", 12_000),
+  ]);
+  assertEquals(fieldsOf(result.outputs, f1040)?.line1h_other_earned, 2_500);
+  const atLimit = compute2026([
+    reviewedCodeDW2("12-3456789", 12_500),
+    reviewedCodeDW2("98-7654321", 12_000),
+  ]);
+  assertEquals(fieldsOf(atLimit.outputs, f1040)?.line1h_other_earned, undefined);
 });
 
 test("code D excess rejects absent review, same employer, Roth, and age-50 facts", () => {
