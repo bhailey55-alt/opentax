@@ -13,11 +13,18 @@ import { form8995Pdf2026 } from "./forms/deductions/business/f8995.ts";
 import { form2441Pdf2026 } from "./forms/credits/individual/f2441.ts";
 import { scheduleBPdf2026 } from "./forms/income/investments/schedule_b.ts";
 import { scheduleDPdf2026 } from "./forms/income/investments/schedule_d.ts";
+import { form8880Pdf2026 } from "./forms/credits/individual/f8880.ts";
 import { form8889Pdf2026 } from "./forms/adjustments/health/f8889.ts";
 import { scheduleEPdf2026 } from "./forms/income/rental-passthrough/schedule_e.ts";
 import { scheduleAPdf2026 } from "./forms/deductions/itemized/schedule_a.ts";
 import { schedule1aPdf2026 } from "./forms/deductions/additional/schedule1a.ts";
 import { form8863Pdf2026 } from "./forms/credits/individual/f8863.ts";
+import { form6251Pdf2026 } from "./forms/taxes/amt/f6251.ts";
+import { form8606Pdf2026 } from "./forms/income/retirement/f8606.ts";
+import { form8949Pdf2026 } from "./forms/income/investments/f8949.ts";
+import { form8615Pdf2026 } from "./forms/taxes/investments/f8615.ts";
+import { form8959Pdf2026 } from "./forms/taxes/employment/f8959.ts";
+import { form8960Pdf2026 } from "./forms/taxes/investments/f8960.ts";
 
 const MAPPED: ReadonlyMap<string, PdfFormDescriptor> = new Map(
   [
@@ -33,8 +40,15 @@ const MAPPED: ReadonlyMap<string, PdfFormDescriptor> = new Map(
     scheduleEPdf2026,
     scheduleSePdf2026,
     form2441Pdf2026,
+    form6251Pdf2026,
     form8863Pdf2026,
+    form8606Pdf2026,
+    form8615Pdf2026,
+    form8880Pdf2026,
     form8889Pdf2026,
+    form8949Pdf2026,
+    form8959Pdf2026,
+    form8960Pdf2026,
     form8995Pdf2026,
   ].map((descriptor) => [descriptor.pendingKey, descriptor]),
 );
