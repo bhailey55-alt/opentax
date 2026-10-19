@@ -159,6 +159,54 @@ test("Form 8829 line 36 reduces the same Schedule C profit used by Schedule SE a
   );
 });
 
+test("Form 8829 line 36 applies beside line 15 business insurance and Part V expenses", () => {
+  // Form 8829 instructions, line 8: line 29 already counts every business
+  // expense that is not an expense of the home, such as liability insurance.
+  const result = scheduleC.compute({ taxYear: 2025, formType: "f1040" }, {
+    schedule_cs: [minimalItem({
+      business_reference: "C-1",
+      proprietor_recipient: TS.T,
+      line_1_gross_receipts: 10_000,
+      line_15_insurance: 600,
+      part_v_other_expenses: [{ description: "Software", amount: 400 }],
+    })],
+    form8829_line30: {
+      business_reference: "C-1",
+      home_identifier: "HOME-1",
+      recipient: TS.T,
+      schedule_c_line29_tentative_profit: 9_000,
+      line36: 1_500,
+    },
+  });
+  assertEquals(findOutput(result, "schedule1")?.fields.line3_schedule_c, 7_500);
+});
+
+test("auto_expense line 9 amount reduces the sole business's profit", () => {
+  // Schedule C instructions, line 9: standard mileage (70 cents x 3,000 miles
+  // in 2025) is the car and truck expense on line 9.
+  const result = scheduleC.compute({ taxYear: 2025, formType: "f1040" }, {
+    schedule_cs: [minimalItem({
+      business_reference: "C-1",
+      line_1_gross_receipts: 10_000,
+      line_9_car_truck_expenses: 300,
+    })],
+    line_9_car_truck_expenses: 2_100,
+  });
+  assertEquals(findOutput(result, "schedule1")?.fields.line3_schedule_c, 7_600);
+  assertThrows(
+    () =>
+      scheduleC.compute({ taxYear: 2025, formType: "f1040" }, {
+        schedule_cs: [
+          minimalItem({ business_reference: "C-1", line_1_gross_receipts: 1 }),
+          minimalItem({ business_reference: "C-2", line_1_gross_receipts: 1 }),
+        ],
+        line_9_car_truck_expenses: 2_100,
+      }),
+    Error,
+    "exactly one Schedule C business",
+  );
+});
+
 test("Form 8829 rejects a second home-office deduction or mismatched line 29", () => {
   const claim = {
     business_reference: "C-1",
@@ -1579,4 +1627,15 @@ test("smoke_comprehensive_all_major_boxes: full Schedule C computes correct net 
   // No depletion → no form6251
   const f6251 = findOutput(result, "form6251");
   assertEquals(f6251, undefined);
+});
+
+test("DOT hours-of-service meals are 80% deductible beside 50% meals", () => {
+  // IRC 274(n)(1) and (n)(3): 2,000 ordinary meals at 50% plus 10,000
+  // hours-of-service meals at 80% make line 24b 9,000.
+  const result = compute([minimalItem({
+    line_1_gross_receipts: 50_000,
+    line_24b_meals: 2_000,
+    line_24b_meals_dot_hours_of_service: 10_000,
+  })]);
+  assertEquals(findOutput(result, "schedule1")?.fields.line3_schedule_c, 41_000);
 });

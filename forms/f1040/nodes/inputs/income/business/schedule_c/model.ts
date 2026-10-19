@@ -297,6 +297,9 @@ export const itemSchema = z.object({
   line_24a_travel: z.number().nonnegative().optional(),
   line_24b_meals: z.number().nonnegative().optional(),
   meals_dot_worker: z.boolean().optional(), // DOT hours-of-service → 80% meals
+  // Meals eaten during DOT hours-of-service duty, 80% deductible beside the
+  // line_24b_meals amount at its own rate (IRC 274(n)(3)).
+  line_24b_meals_dot_hours_of_service: z.number().nonnegative().optional(),
   meals_as_wages: z.boolean().optional(), // Meals treated as wages → 100%
   line_25_utilities: z.number().nonnegative().optional(),
   // Gross payroll before the Form 5884 and other employment-credit reductions.
@@ -591,9 +594,35 @@ export function projectSection481aScheduleCItems(
   });
 }
 
-export function projectScheduleCItems(
+/** Fold the auto_expense worksheet amount into the business's line 9.
+ * Schedule C instructions, line 9: the standard mileage rate or the
+ * business share of actual costs is the line 9 car and truck expense. */
+export function foldCarTruckWorksheet(
   input: z.infer<typeof inputSchema>,
+): z.infer<typeof inputSchema> {
+  const worksheet = input.line_9_car_truck_expenses ?? 0;
+  if (worksheet === 0) return input;
+  if (input.schedule_cs.length !== 1) {
+    throw new Error(
+      "auto_expense Schedule C car and truck expense needs exactly one Schedule C business",
+    );
+  }
+  const item = input.schedule_cs[0];
+  return {
+    ...input,
+    line_9_car_truck_expenses: undefined,
+    schedule_cs: [{
+      ...item,
+      line_9_car_truck_expenses: (item.line_9_car_truck_expenses ?? 0) +
+        worksheet,
+    }],
+  };
+}
+
+export function projectScheduleCItems(
+  rawInput: z.infer<typeof inputSchema>,
 ): ScheduleCItem[] {
+  const input = foldCarTruckWorksheet(rawInput);
   const rawItems = projectSection481aScheduleCItems(input).map((item) =>
     item.donated_natural_resource_property_source
       ? itemSchema.parse({
@@ -690,8 +719,9 @@ export function projectScheduleCItems(
 }
 
 export function projectForm8829ScheduleCItems(
-  input: z.infer<typeof inputSchema>,
+  rawInput: z.infer<typeof inputSchema>,
 ): ScheduleCItem[] {
+  const input = foldCarTruckWorksheet(rawInput);
   const claim = input.form8829_line30;
   if (!claim) return input.schedule_cs;
   if (
@@ -701,7 +731,6 @@ export function projectForm8829ScheduleCItems(
     (input.line1_gross_receipts ?? 0) > 0 ||
     (input.statutory_wages ?? 0) > 0 ||
     (input.line16a_interest_mortgage ?? 0) > 0 ||
-    (input.line_9_car_truck_expenses ?? 0) > 0 ||
     (input.line_12_depletion ?? 0) > 0
   ) {
     throw new Error(
@@ -717,12 +746,14 @@ export function projectForm8829ScheduleCItems(
     item.home_office_method === "simplified" ||
     item.home_office_sq_ft !== undefined ||
     item.home_total_sq_ft !== undefined ||
-    (item.line_15_insurance ?? 0) > 0 ||
+    // Line 15 business insurance and Part V other expenses are not expenses
+    // of the home, so they stay on Schedule C beside Form 8829 (Form 8829
+    // instructions, lines 8 and 18-22: the home's insurance and other
+    // expenses are entered there; Schedule C instructions, lines 15 and 27a).
     (item.line_20b_rent_other ?? 0) > 0 ||
     (item.line_21_repairs ?? 0) > 0 ||
     (item.line_25_utilities ?? 0) > 0 ||
     (item.line_27b_other_expenses ?? 0) > 0 ||
-    (item.part_v_other_expenses?.length ?? 0) > 0 ||
     computeGrossIncome(item) - computeTotalExpenses(item) !==
       claim.schedule_c_line29_tentative_profit
   ) {
@@ -785,6 +816,13 @@ export function mealsDeductiblePct(item: ScheduleCItem): number {
   if (item.meals_as_wages === true) return MEALS_WAGES_PCT;
   if (item.meals_dot_worker === true) return MEALS_DOT_PCT;
   return MEALS_STANDARD_PCT;
+}
+
+/** Schedule C line 24b: each meals amount at its own deductible rate
+ * (Schedule C instructions, line 24b; IRC 274(n)(1) and (n)(3)). */
+export function deductibleMeals(item: ScheduleCItem): number {
+  return (item.line_24b_meals ?? 0) * mealsDeductiblePct(item) +
+    (item.line_24b_meals_dot_hours_of_service ?? 0) * MEALS_DOT_PCT;
 }
 
 export function homeOfficeDeduction(
@@ -1065,7 +1103,7 @@ export function computeTotalExpenses(
   item: ScheduleCItem,
   wotcReduction = 0,
 ): number {
-  const mealsDeductible = (item.line_24b_meals ?? 0) * mealsDeductiblePct(item);
+  const mealsDeductible = deductibleMeals(item);
   const partVTotal = item.donated_natural_resource_property_source
     ? naturalResourceCurrentCosts(item)
     : (item.part_v_other_expenses ?? []).reduce(

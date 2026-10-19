@@ -238,6 +238,7 @@ export const inputSchema = z.object({
   line8z_rtaa: z.number().optional(),
   // Line 8z — Taxable grants (Form 1099-G)
   line8r_taxable_scholarships: z.number().int().nonnegative().optional(),
+  line8t_nqdc_distribution: z.number().nonnegative().optional(),
   line8z_taxable_grants: z.number().optional(),
   // Form 6198 at-risk disallowance add-back (restores previously posted loss)
   at_risk_disallowed_add_back: z.number().nonnegative().optional(),
@@ -477,6 +478,7 @@ function nonSsaIncomeBeforePal(input: AgiInput): number {
     (input.line8z_archer_excess_employer ?? 0) +
     (input.line8z_rtaa ?? 0) +
     (input.line8r_taxable_scholarships ?? 0) +
+    (input.line8t_nqdc_distribution ?? 0) +
     (input.line8z_taxable_grants ?? 0) +
     (input.at_risk_disallowed_add_back ?? 0) +
     (input.at_risk_recapture ?? 0) +
@@ -760,6 +762,7 @@ function scheduleOnePartI(input: AgiInput): number {
     (input.line8z_archer_excess_employer ?? 0) +
     (input.line8z_rtaa ?? 0) +
     (input.line8r_taxable_scholarships ?? 0) +
+    (input.line8t_nqdc_distribution ?? 0) +
     (input.line8z_taxable_grants ?? 0) +
     (input.at_risk_disallowed_add_back ?? 0) +
     (input.at_risk_recapture ?? 0) +
@@ -814,9 +817,23 @@ function withNolDeduction(
     taxableIncome,
     taxYear,
   );
+  // A carryforward used in full needs only enough taxable income to absorb
+  // it: pre-2018 losses in full, post-2017 losses within 80% of the rest
+  // (IRC §172(a)(2); Pub. 536). Any deduction that leaves that much keeps
+  // the same NOL deduction.
+  const fullyUsed = nol.carryforward.length === 0;
+  const requiredTaxableIncome = fullyUsed
+    ? nol.pre2018Deduction +
+      Math.ceil(nol.post2017Deduction / 0.8)
+    : undefined;
   return {
     input: { ...input, line8a_nol_deduction: nol.deduction },
-    nol: { ...nol, assumedStandardDeduction: standard },
+    nol: {
+      ...nol,
+      assumedStandardDeduction: standard,
+      requiredTaxableIncome,
+      agiBeforeNol,
+    },
   };
 }
 
@@ -931,9 +948,13 @@ class AgiAggregatorNode extends TaxNode<typeof inputSchema> {
       ),
       this.outputNodes.output(standard_deduction, {
         agi,
-        ...(nol?.assumedStandardDeduction !== undefined && {
-          nol_limit_standard_deduction: nol.assumedStandardDeduction,
-        }),
+        ...(nol?.assumedStandardDeduction !== undefined &&
+          (nol.requiredTaxableIncome === undefined
+            ? { nol_limit_standard_deduction: nol.assumedStandardDeduction }
+            : {
+              nol_limit_required_taxable_income: nol.requiredTaxableIncome,
+              nol_limit_agi_before_nol: nol.agiBeforeNol,
+            })),
         return_earned_income: dependentWorksheetEarnedIncome(input),
         form8615_total_income: totalIncome,
         form8615_early_withdrawal_penalty: Math.max(

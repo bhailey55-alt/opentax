@@ -228,6 +228,9 @@ export const itemSchema = z.object({
   expense_depreciation_amt: z.number().nonnegative().optional(),
   expense_depletion: z.number().nonnegative().optional(),
   expense_other_lines: z.array(otherExpenseLineSchema).max(6).optional(),
+  // The expense lines above are already the rental-use share of a unit with
+  // personal use, so they are not divided again by days (Pub. 527, ch. 5).
+  expenses_are_rental_portion: z.boolean().optional(),
 }).superRefine((item, ctx) => {
   if (item.qbi_aggregation_number !== undefined) {
     ctx.addIssue({
@@ -1412,6 +1415,119 @@ function form8990Outputs(items: EItems): NodeOutput[] {
   );
 }
 
+// ─── Row finalization ─────────────────────────────────────────────────────────
+
+// Prior-year assets become this activity's depreciation (Pub. 946, Appendix A).
+function withPriorYearDepreciation(item: EItem, taxYear: number): EItem {
+  if (!item.prior_year_assets) return item;
+  const { prior_year_assets: assets, ...rest } = item;
+  const { rows, total } = priorYearDepreciationTotal(assets, taxYear);
+  return {
+    ...rest,
+    expense_depreciation: (item.expense_depreciation ?? 0) + total,
+    prior_year_depreciation_rows: rows,
+  };
+}
+
+const dividedExpenseKeys = [
+  "expense_advertising",
+  "expense_auto_travel",
+  "expense_cleaning",
+  "expense_commissions",
+  "expense_insurance",
+  "expense_legal_professional",
+  "expense_management",
+  "expense_mortgage_interest",
+  "expense_other_interest",
+  "expense_repairs",
+  "expense_supplies",
+  "expense_taxes",
+  "expense_utilities",
+  "expense_depreciation",
+  "expense_depreciation_amt",
+  "expense_depletion",
+] as const satisfies ReadonlyArray<keyof EItem>;
+
+const cents = (amount: number) => Math.round(amount * 100) / 100;
+
+// IRC 280A(e)(1); Pub. 527, ch. 5, Dividing Expenses: a unit used for both
+// rental and personal purposes deducts only rental days / total days used of
+// each expense. A unit rented under 15 days deducts nothing (280A(g)), and a
+// row with an occupancy_percent split keeps that reviewed split instead.
+function withRentalShareOfExpenses(item: EItem): EItem {
+  if (
+    item.personal_use_days === 0 || item.fair_rental_days === 0 ||
+    item.expenses_are_rental_portion === true ||
+    item.occupancy_percent !== undefined ||
+    isVacationHomeExcluded(item)
+  ) return item;
+  const share = item.fair_rental_days /
+    (item.fair_rental_days + item.personal_use_days);
+  const divided: Partial<EItem> = {};
+  for (const key of dividedExpenseKeys) {
+    const amount = item[key];
+    if (amount !== undefined) divided[key] = cents(amount * share);
+  }
+  return {
+    ...item,
+    ...divided,
+    ...(item.expense_other_lines
+      ? {
+        expense_other_lines: item.expense_other_lines.map((line) => ({
+          ...line,
+          amount: cents(line.amount * share),
+        })),
+      }
+      : {}),
+    expenses_are_rental_portion: true,
+  };
+}
+
+// The auto_expense worksheet's rental car expense goes on line 6 of the
+// rental it was driven for (Schedule E instructions, line 6; Rev. Proc.
+// 2019-46 standard mileage). Royalty rows are not rentals.
+function withAutoTravel(
+  input: z.infer<typeof inputSchema>,
+): z.infer<typeof inputSchema> {
+  const travel = input.expense_auto_travel ?? 0;
+  if (travel === 0) return input;
+  const rentals = (input.schedule_es ?? []).filter((item) =>
+    item.property_type !== 6
+  );
+  if (rentals.length !== 1) {
+    throw new Error(
+      "auto_expense Schedule E car expense needs exactly one rental property",
+    );
+  }
+  return {
+    ...input,
+    expense_auto_travel: undefined,
+    schedule_es: input.schedule_es.map((item) =>
+      item === rentals[0]
+        ? {
+          ...item,
+          expense_auto_travel: (item.expense_auto_travel ?? 0) + travel,
+        }
+        : item
+    ),
+  };
+}
+
+export function finalizeScheduleEInput(
+  input: z.infer<typeof inputSchema>,
+  taxYear: number,
+): z.infer<typeof inputSchema> {
+  const rows = input.schedule_es ?? [];
+  const finalizedRows = rows.map((item) =>
+    withRentalShareOfExpenses(withPriorYearDepreciation(item, taxYear))
+  );
+  const withRows = finalizedRows.some((item, index) => item !== rows[index])
+    ? { ...input, schedule_es: finalizedRows }
+    : input;
+  // Worksheet miles are rental miles only, so they are added after dividing.
+  return withAutoTravel(withRows);
+}
+
 // ─── Node class ───────────────────────────────────────────────────────────────
 
 class ScheduleENode extends TaxNode<typeof inputSchema> {
@@ -1431,27 +1547,23 @@ class ScheduleENode extends TaxNode<typeof inputSchema> {
   ]);
 
   compute(ctx: NodeContext, input: z.infer<typeof inputSchema>): NodeResult {
-    // Prior-year assets become this activity's depreciation (Pub. 946,
-    // Appendix A); the finalized rows carry the deduction to every reader.
-    if (!input.schedule_es?.some((item) => item.prior_year_assets)) {
-      return this.computeRows(ctx, input);
-    }
-    const schedule_es = input.schedule_es.map((item) => {
-      if (!item.prior_year_assets) return item;
-      const { prior_year_assets: assets, ...rest } = item;
-      const { rows, total } = priorYearDepreciationTotal(assets, ctx.taxYear);
-      return {
-        ...rest,
-        expense_depreciation: (item.expense_depreciation ?? 0) + total,
-        prior_year_depreciation_rows: rows,
-      };
-    });
-    const result = this.computeRows(ctx, { ...input, schedule_es });
+    const finalized = finalizeScheduleEInput(input, ctx.taxYear);
+    if (finalized === input) return this.computeRows(ctx, input);
+    // The finalized rows carry the projected expenses to every reader.
+    const result = this.computeRows(ctx, finalized);
     return {
       ...result,
       outputs: [
         ...result.outputs,
-        { nodeType: this.nodeType, fields: { schedule_es } },
+        {
+          nodeType: this.nodeType,
+          fields: {
+            schedule_es: finalized.schedule_es,
+            ...(finalized.expense_auto_travel !== input.expense_auto_travel
+              ? { expense_auto_travel: undefined }
+              : {}),
+          },
+        },
       ],
     };
   }
