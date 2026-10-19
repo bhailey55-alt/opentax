@@ -10,6 +10,7 @@ import { Box12Code } from "../../nodes/inputs/income/wages/w2/index.ts";
 import { f1040_2026 } from "../index.ts";
 import { TY2026_DRAFT_NOTICE } from "./draft-template.ts";
 import { TY2026_PDF_MAPPED_FORMS, ty2026PdfForms } from "./builder.ts";
+import { scheduleEPdf2026 } from "./forms/income/rental-passthrough/schedule_e.ts";
 import { loadPdfTemplate } from "../../2025/pdf/support/template-cache.ts";
 
 const fixture = (id: string) => {
@@ -219,6 +220,112 @@ test("TY2026 PDF prints Form 2441 Part I providers as columns", async () => {
   assertMatch(printed, /line 11a 7 50000/);
   assertMatch(printed, /9a Multiply line 6[^\n]* 9a 1050/);
   assertMatch(printed, /on Schedule 3 \(Form 1040\), line 2[^\n]* 11 500/);
+});
+
+test("TY2026 PDF prints Schedule E on the 2026 draft pages", async () => {
+  const rental = fixture("single-nonparticipating-rental-loss");
+  const [property] = rental.schedule_e as Array<Record<string, unknown>>;
+  const trust = fixture("single-trust-k1-box5-schedule-e");
+  const doc = await render({
+    ...rental,
+    k1_trust: trust.k1_trust,
+    schedule_e: [{
+      ...property,
+      activity_type: "A",
+      rent_income: 12000,
+      expense_repairs: 1000,
+      expense_mortgage_interest: 2000,
+      expense_other_interest: 300,
+    }],
+  });
+  const printed = await text(doc);
+  assertMatch(printed, /SCHEDULE E[\s\S]*2026/);
+  assertMatch(printed, /A 12 Example Street Austin TX 78701/);
+  assertMatch(printed, /3 Rents received[^\n]* 3 12000/);
+  assertMatch(printed, /12 Mortgage interest[^\n]* 12 2000/);
+  assertMatch(printed, /13 Interest \(see instructions\)[^\n]* 13\n/);
+  assertMatch(printed, /13b Other[^\n]* 13b 300/);
+  assertMatch(printed, /14 Repairs[^\n]* 14 1000/);
+  assertMatch(printed, /20 Total expenses[^\n]* 20 3300/);
+  assertMatch(printed, /23a Total of all amounts reported on line 3[^\n]* 23a 12000/);
+  assertMatch(printed, /23e Total of all amounts reported on line 20[^\n]* 23e 3300/);
+  assertMatch(printed, /24 Income\. Add positive amounts[^\n]* 24 8700/);
+  assertMatch(printed, /26 Total rental real estate[\s\S]*? 26 8700/);
+  assertMatch(printed, /A Family Trust[^\n]* 123456789/);
+  assertMatch(printed, /37 Total estate and trust income[^\n]* 37 750/);
+  assertMatch(printed, /41 Total income or \(loss\)\. Combine[\s\S]*? 41 9450/);
+  const k1Columns = scheduleEPdf2026.fields
+    .filter((entry) => entry.domainKey.startsWith("k1_0_"))
+    .map((entry) => [entry.domainKey, entry.pdfField.split(".").pop()]);
+  assertEquals(Object.fromEntries(k1Columns), {
+    k1_0_name: "f2_6[0]",
+    k1_0_code: "f2_7[0]",
+    k1_0_ein: "f2_8[0]",
+    k1_0_passive_loss: "f2_18[0]",
+    k1_0_passive_income: "f2_19[0]",
+    k1_0_basis_required: "c2_3[0]",
+    k1_0_nonpassive_income: "f2_22[0]",
+  });
+});
+
+test("TY2026 PDF prints Schedule A with the 0.5% gift floor and line 18", async () => {
+  const itemizer = fixture("single-1098-purchase-points");
+  const schedule_a = {
+    line_5b_real_estate_tax: 4000,
+    cash_contributions_to_50_percent_organizations: 10000,
+  };
+  const printed = await text(await render({ ...itemizer, schedule_a }));
+  assertMatch(printed, /SCHEDULE A[\s\S]*2026/);
+  assertMatch(printed, /line 11b[^\n]* 2 80000/);
+  assertMatch(printed, /7 Add lines 5e and 6[^\n]* 7 4000/);
+  assertMatch(printed, /8e Add lines 8a through 8d[^\n]* 8e 20400/);
+  assertMatch(printed, /10 Add lines 8e and 9[^\n]* 10 20400/);
+  assertMatch(printed, /see instructions[^\n]* 11 10000/);
+  assertMatch(printed, /Limitation Worksheet[^\n]* 13 9600/);
+  assertMatch(printed, /15 Add lines 13 and 14[^\n]* 15 9600/);
+  assertMatch(printed, /✔ No\. Your deductions are not limited/);
+  assertMatch(printed, /the amount to enter[^\n]* 18 34000/);
+  assertMatch(printed, /12e Standard deduction or itemized[^\n]* 12e 34000/);
+});
+
+test("TY2026 PDF prints Schedule 1-A car loan and senior parts", async () => {
+  const car = await text(
+    await render(fixture("single-reviewed-car-loan-schedule1a")),
+  );
+  assertMatch(car, /SCHEDULE 1-A[\s\S]*2026/);
+  assertMatch(car, /line 11b[^\n]* 1 80000/);
+  assertMatch(car, /28a 1 H G C M 8 2 6 3 3 A 0 0 4 3 5 2 0 4000/);
+  assertMatch(car, /does not qualify\)\?[^\n]* ✔ Yes No/);
+  assertMatch(car, /final assembly\)\?[^\n]* ✔ Yes No/);
+  assertMatch(car, /29 Add lines 28a and 28b[^\n]* 29 4000/);
+  assertMatch(car, /32 Enter \$100,000[^\n]* 32 100000/);
+  assertMatch(car, /enter -0- [. ]* 36 4000/);
+  assertMatch(car, /44 Add lines 15, 27, 36, and 43[^\n]* 44 4000/);
+  const senior = await text(await render(fixture("joint-senior-schedule1a")));
+  assertMatch(senior, /37 Enter the amount from line 3[^\n]* 37 160000/);
+  assertMatch(senior, /40 Multiply line 39 by 6%[^\n]* 40 600/);
+  assertMatch(senior, /41 Subtract line 40 from \$6,000[^\n]* 41 5400/);
+  assertMatch(senior, /43 Enhanced deduction for seniors[^\n]* 43 10800/);
+  assertMatch(senior, /44 Add lines 15, 27, 36, and 43[^\n]* 44 10800/);
+  await assertRejects(
+    () => render(fixture("single-w2-qualified-tips-schedule1a")),
+    Error,
+    "Schedule 1-A tips, overtime",
+  );
+});
+
+test("TY2026 PDF prints Form 8863 on the 2026 draft", async () => {
+  // The fixture's worksheet holds 2025 tax; the 2026 return supplies its own.
+  const { f8863_credit_limit_worksheet: _, ...inputs } = fixture(
+    "single-form8863-lifetime-learning-scholarship",
+  );
+  const printed = await text(await render(inputs));
+  assertMatch(printed, /Education Credits[\s\S]*2026/);
+  assertMatch(printed, /11 Enter the smaller of line 10 or \$10,000[^\n]* 11 7500/);
+  assertMatch(printed, /12 Multiply line 11 by 20%[^\n]* 12 1500/);
+  assertMatch(printed, /Schedule 3 \(Form 1040\), line 3[^\n]* 19 1500/);
+  assertMatch(printed, /\n Test University\n/);
+  assertMatch(printed, /Part II, line 10[^\n]* 31 7500/);
 });
 
 test("TY2026 PDF refuses, by name, a form with no TY2026 mapping", async () => {
