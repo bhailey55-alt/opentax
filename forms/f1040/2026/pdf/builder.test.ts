@@ -498,10 +498,21 @@ test("TY2026 PDF prints Form 8863 on the 2026 draft", async () => {
 
 test("TY2026 PDF refuses, by name, a form with no TY2026 mapping", async () => {
   await assertRejects(
-    () => render(fixture("single-form5329-two-early-ira-distributions")),
+    () => render(fixture("single-form4835-farm-rental-profit")),
     Error,
-    "TY2026 PDF export needs form5329",
+    "TY2026 PDF export needs f4835",
   );
+});
+
+test("TY2026 PDF prints Form 5329 Part I on the 2026 draft", async () => {
+  const printed = await text(
+    await render(fixture("single-form5329-two-early-ira-distributions")),
+  );
+  assertMatch(printed, /Form 5329 \(2026\)/);
+  assertMatch(printed, /For Roth IRA distributions, see instructions \. 1 10000/);
+  assertMatch(printed, /Subtract line 2 from line 1 [. ]* 3 10000/);
+  assertMatch(printed, /Schedule 2 \(Form 1040\), line 5 \. \. 4 1000/);
+  assertMatch(printed, /If not required,\n check here [. ]* 5 1000/);
 });
 
 test("every TY2026 mapped field exists on its pinned 2026 template", async () => {
@@ -525,4 +536,68 @@ test("every TY2026 mapped field exists on its pinned 2026 template", async () =>
       .filter((name) => !names.has(name));
     assertEquals(missing, [], key);
   }
+});
+
+test("TY2026 PDF prints Form 8962 on the 2026 draft with line 27 uncapped", async () => {
+  const printed = await text(
+    await render(fixture("single-marketplace-aptc-repayment")),
+  );
+  assertMatch(printed, /Form 8962 \(2026\)/);
+  assertMatch(printed, /Other 48 states and DC 4 15650/);
+  assertMatch(printed, /federal poverty line \(see instructions\)[^\n]* 5 288 %/);
+  assertMatch(printed, /Did you enter 401% on line 5\?[^\n]*\n ✔ No\./);
+  assertMatch(printed, /11 Annual totals 9600 7200 4337 2863 2863 8400/);
+  assertMatch(printed, /enter the total here 24 2863/);
+  assertMatch(printed, /Schedule 2 \(Form 1040\), line 1a [. ]* 27 5537/);
+  assertMatch(printed, /28 Reserved for future use [. ]* 28\n/);
+});
+
+test("TY2026 PDF prints Form 8582 on the 2026 draft", async () => {
+  const printed = await text(
+    await render(fixture("single-nonparticipating-rental-loss")),
+  );
+  assertMatch(printed, /Part I 2026 Passive Activity Loss/);
+  assertMatch(printed, /Part V, column \(b\)\) [. ]* 2b \( 5000 \)/);
+  assertMatch(printed, /Combine lines 2a, 2b, and 2c [. ]* 2d -5000/);
+  assertMatch(printed, /normally used [. ]* 3 -5000/);
+  assertMatch(printed, /Total\. Enter on Part I, lines 2a, 2b, and 2c 5000 5000/);
+  assertMatch(printed, /Example rental Sch E, line 22 5000 5000 0/);
+});
+
+test("TY2026 PDF prints Form 4562 Part I on the 2026 draft", async () => {
+  const inputs = JSON.parse(
+    JSON.stringify(fixture("single-form4562-section179-w2-income-limit"))
+      .replace(/202[4-6]/g, (year) => String(Number(year) + 1)),
+  );
+  const printed = await text(await render(inputs));
+  assertMatch(printed, /Form 4562 \(2026\)/);
+  assertMatch(printed, /1 Maximum amount \(see instructions\)[^\n]* 1 30000/);
+  assertMatch(printed, /before reduction in limitation \(see instructions\)[^\n]* 3 4090000/);
+  assertMatch(printed, /Computer server 30000 30000/);
+  assertMatch(printed, /from line 13 of your 2025 Form 4562 [. ]* 10 0/);
+  assertMatch(printed, /don’t enter more than line 11 [. ]* 12 30000/);
+  assertMatch(printed, /Carryover of disallowed deduction to 2027[^\n]* 13 0/);
+  assertMatch(printed, /corporations—see instructions [. ]* 22 30000/);
+});
+
+test("TY2026 PDF prints Form 1116 Parts I-IV on the 2026 draft", async () => {
+  const inputs = fixture("single-foreign-interest-current-excess");
+  const [interest] = inputs.f1099int as Array<Record<string, unknown>>;
+  const printed = await text(
+    await render({ ...inputs, f1099int: [{ ...interest, box6: 1_000 }] }),
+  );
+  assertMatch(printed, /Form 1116 \(2026\)/);
+  assertMatch(printed, /c ✔ Passive category income/);
+  assertMatch(printed, /Enter the name of the foreign country Canada/);
+  assertMatch(printed, /\n 50000 1a 50000\n/);
+  assertMatch(printed, /Add lines 2, 3g, 4a, 4b, and 5 [. ]* 16100 6 16100/);
+  assertMatch(printed, /on page 2, line 15 [. ]* 7 33900/);
+  assertMatch(printed, /\(j\) ✔ Paid/);
+  assertMatch(printed, /\n A 1000 1000\n/);
+  assertMatch(printed, /column \(w\)\. Enter the total here and on Part III, line 9 [. ]* 8 1000/);
+  assertMatch(printed, /Schedule 1-A \(Form 1040\), line 43[\s\S]*? 18 33900/);
+  assertMatch(printed, /line 16, and Schedule 2[\s\S]*? 20 3823/);
+  assertMatch(printed, /smaller of line 14 or line 23[^\n]* 24 1000/);
+  assertMatch(printed, /passive category income [. ]* 27 1000/);
+  assertMatch(printed, /Part III, line 1a [. ]* 35 1000/);
 });
